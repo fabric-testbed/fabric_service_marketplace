@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}{{ service.name }} - FABRIC Service{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <h2>{{ service.name }}</h2>
+        <p class="text-muted">{{ service.description }}</p>
+        <p class="small text-muted">by {{ service.owner.username }}</p>
+
+        {% if external %}
+        <div class="card mt-4">
+            <div class="card-body p-4">
+                <p class="text-muted mb-3">
+                    This service is hosted on its own website and has its own login.
+                </p>
+                <a class="btn btn-primary" href="{{ service.external_url }}" target="_blank" rel="noopener">
+                    Open {{ service.name }} &#8599;
+                </a>
+                <div class="small text-muted mt-2"><code>{{ service.external_url }}</code></div>
+            </div>
+        </div>
+        {% elif not authenticated %}
+        {% if denied %}
+        <div class="alert alert-warning mt-4">
+            You are logged in as <strong>{{ current_user.name }}</strong>, but you are not a
+            member of any FABRIC project allowed to use this service.
+        </div>
+        {% else %}
+        <div class="card mt-4">
+            <div class="card-body p-4">
+                <h5 class="card-title">Log in to use this service</h5>
+                <p class="text-muted">
+                    You need to be a member of one of the service's allowed FABRIC projects.
+                </p>
+                <a class="btn btn-primary w-100"
+                   href="/login?next={{ ('/available_services/' ~ service.name)|urlencode }}">Log in</a>
+            </div>
+        </div>
+        {% endif %}
+        {% else %}
+        <div class="alert alert-info py-2 d-flex justify-content-between align-items-center">
+            <span>Logged in as: <strong>{{ consumer_name }}</strong></span>
+            {% if nodes|length > 1 %}
+            <div class="d-flex align-items-center gap-2">
+                <label for="node-select" class="form-label mb-0 small">Target Node:</label>
+                <select id="node-select" class="form-select form-select-sm" style="width: auto;">
+                    {% for node in nodes %}
+                    <option value="{{ node.ipv6 }}:{{ node.port }}">{{ node.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% elif nodes|length == 1 %}
+            <input type="hidden" id="node-select" value="{{ nodes[0].ipv6 }}:{{ nodes[0].port }}">
+            {% endif %}
+        </div>
+
+        {% if widgets %}
+        {% set widget = widgets[0] %}
+        <div class="card mt-3" data-widget-id="{{ widget.id }}" data-service-name="{{ service.name }}">
+            <div class="card-body">
+                <h5>{{ widget.label }}</h5>
+
+                {% if widget.get('instructions') %}
+                <div class="alert alert-light border mb-3">
+                    {{ widget.instructions }}
+                </div>
+                {% endif %}
+
+                {% if widget.type == 'button' %}
+                <button class="btn btn-primary widget-action-btn"
+                        data-widget-id="{{ widget.id }}"
+                        data-method="{{ widget.method }}"
+                        data-auto-refresh="{{ widget.get('auto_refresh', false)|lower }}"
+                        data-refresh-interval="{{ widget.get('refresh_interval_sec', 30) }}">
+                    {{ widget.label }}
+                </button>
+
+                {% elif widget.type == 'form' %}
+                <form class="widget-form" data-widget-id="{{ widget.id }}"
+                      data-method="{{ widget.method }}">
+                    {% for field in widget.get('input_fields', []) %}
+                    <div class="mb-3">
+                        <label class="form-label">{{ field.label or field.name }}</label>
+                        <input type="text" name="{{ field.name }}"
+                               class="form-control"
+                               {% if field.required %}required{% endif %}>
+                        {% if field.get('help_text') %}
+                        <div class="form-text">{{ field.help_text }}</div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                    <button type="submit" class="btn btn-primary">Submit</button>
+                </form>
+                {% endif %}
+
+                <!-- Output area -->
+                <div class="mt-4" id="output-area-{{ widget.id }}">
+                    {% if widget.get('output_fields') and widget.output_fields|length > 0 %}
+                    {% for ofield in widget.output_fields %}
+                    <div class="mb-3 output-field-container" data-key="{{ ofield.key }}">
+                        <label class="form-label"><strong>{{ ofield.label }}</strong></label>
+                        {% if ofield.get('description') %}
+                        <div class="form-text mb-1">{{ ofield.description }}</div>
+                        {% endif %}
+                        <pre class="bg-light p-2 rounded small mb-0 output-value" style="min-height: 2em; white-space: pre-wrap;">—</pre>
+                    </div>
+                    {% endfor %}
+                    {% else %}
+                    <label class="form-label text-muted small"><strong>Output</strong></label>
+                    <div class="widget-response" id="response-{{ widget.id }}"></div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if external %}
+{% elif authenticated %}
+<script>
+    // Pass output field config to JS
+    window.WIDGET_OUTPUT_FIELDS = {{ (widgets[0].get('output_fields', []) if widgets else []) | tojson }};
+</script>
+<script src="{{ url_for('static', filename='js/service_widgets.js') }}"></script>
+{% endif %}
+{% endblock %}

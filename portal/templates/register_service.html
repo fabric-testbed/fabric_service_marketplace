@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit Service' if edit_mode else 'Register Service' }} - FABRIC Service Portal{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">{{ 'Edit Service' if edit_mode else 'Register a New Service' }}</h2>
+
+<div class="row">
+    <div class="col-12">
+        <!-- Access mode -->
+        <div class="card mb-3">
+            <div class="card-header"><strong>How do users get access?</strong></div>
+            <div class="card-body">
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="radio" name="auth-mode" id="mode-fabric_token" value="fabric_token" checked>
+                    <label class="form-check-label" for="mode-fabric_token">
+                        <strong>App on my FABRIC nodes</strong>
+                        <div class="form-text mt-0">You run the generated app on your nodes. The portal passes each user's
+                            FABRIC service token to it, and the app checks it with FABRIC. Users can also call your app
+                            directly from their own VMs with their token.</div>
+                    </label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="auth-mode" id="mode-external" value="external">
+                    <label class="form-check-label" for="mode-external">
+                        <strong>External web service</strong> (link only)
+                        <div class="form-text mt-0">Already running on its own website with its own login. The portal lists
+                            it and links to it; nothing to install.</div>
+                    </label>
+                </div>
+                <div class="mt-3 d-none" id="external-url-section">
+                    <label class="form-label">Service URL</label>
+                    <input type="url" id="svc-external-url" class="form-control" placeholder="https://my-service.example.org">
+                </div>
+            </div>
+        </div>
+
+        <!-- Service Details -->
+        <div class="card mb-3">
+            <div class="card-header"><strong>Service Details</strong></div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Service Name</label>
+                        <input type="text" id="svc-name" class="form-control"
+                               placeholder="Your service name"
+                               pattern="[a-z0-9][a-z0-9\-]{1,48}[a-z0-9]">
+                        <div class="form-text">(Lowercase letters, numbers, hyphens. 3-50 chars.)</div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Description</label>
+                        <input type="text" id="svc-desc" class="form-control"
+                               placeholder="Brief description of your service">
+                    </div>
+                    <div class="col-md-10" id="projects-section">
+                        <label class="form-label">Allowed Projects (users in these projects can use this service)</label>
+                        <div id="projects-list"></div>
+                        <button type="button" id="add-project-btn" class="btn btn-outline-secondary btn-sm mt-2">
+                            + Add Project
+                        </button>
+                        <div class="form-text">Add one or more FABRIC project UUIDs.</div>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Icon Color</label>
+                        <input type="color" id="svc-color" class="form-control form-control-color"
+                               value="#3B82F6">
+                    </div>
+                    <div class="col-12" id="nodes-section">
+                        <label class="form-label">Slice Nodes</label>
+                        <div id="nodes-list"></div>
+                        <button type="button" id="add-node-btn" class="btn btn-outline-secondary btn-sm mt-2">
+                            + Add Node
+                        </button>
+                        <div class="form-text">
+                            Add the nodes in your slice where your Flask app will run.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Widget (single, always Input Form) -->
+        <div class="card mb-3" id="widget-section">
+            <div class="card-header"><strong>Widget</strong></div>
+            <div class="card-body" id="widget-canvas">
+                <!-- Single widget card is added here dynamically on load -->
+            </div>
+        </div>
+
+        <!-- Live code preview -->
+        <div class="card mb-3" id="preview-section">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <strong>Flask App Preview</strong>
+                <div>
+                    <span class="badge bg-secondary me-2" id="preview-status">Idle</span>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="preview-copy-btn">Copy</button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <pre class="mb-0 p-3 bg-light" style="max-height: 400px; overflow: auto;"><code id="preview-code" class="small text-muted">Configure the widget above to see the generated Flask code.</code></pre>
+            </div>
+        </div>
+
+        <div id="register-error" class="alert alert-danger d-none"></div>
+        <button id="register-btn" class="btn btn-primary btn-lg w-100">
+            {{ 'Update Service' if edit_mode else 'Register Service' }}
+        </button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if edit_mode %}
+<script>
+    window.EDIT_MODE = true;
+    window.SERVICE_DATA = {{ service_data | tojson }};
+</script>
+{% else %}
+<script>
+    window.EDIT_MODE = false;
+    window.SERVICE_DATA = null;
+</script>
+{% endif %}
+<script src="{{ url_for('static', filename='js/canvas.js') }}"></script>
+{% endblock %}

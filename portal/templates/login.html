@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Login - FABRIC Service Portal{% endblock %}
+{% block content %}
+<div class="row justify-content-center mt-5">
+    <div class="col-md-6">
+        <div class="card shadow">
+            <div class="card-body p-4">
+                {% if error %}
+                <div class="alert alert-danger">{{ error }}</div>
+                {% endif %}
+
+                <h2 class="card-title text-center mb-4">Log in</h2>
+                {% if login_url %}
+                <a class="btn btn-primary w-100 btn-lg"
+                   href="{{ login_url }}{% if next_url %}{{ '&' if '?' in login_url else '?' }}next={{ next_url|urlencode }}{% endif %}">
+                    Sign in with FABRIC
+                </a>
+                {% else %}
+                <button class="btn btn-primary w-100 btn-lg" disabled>Sign in with FABRIC</button>
+                <p class="text-muted small text-center mt-2 mb-0">FABRIC sign-in is not set up yet.</p>
+                {% endif %}
+                <hr>
+                <p class="text-center small mb-0">
+                    For testing:
+                    <a href="/token_test{% if next_url %}?next={{ next_url|urlencode }}{% endif %}">log in with a FABRIC service token</a>
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

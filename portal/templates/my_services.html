@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}My Services - FABRIC Service Portal{% endblock %}
+{% block content %}
+<h2 class="mb-4">My Services</h2>
+
+{% if services %}
+<div class="table-responsive">
+    <table class="table table-hover">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Description</th>
+                <th>Node</th>
+                <th>Status</th>
+                <th>Created</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for svc in services %}
+            <tr>
+                <td>
+                    <a href="/edit_service/{{ svc.name }}">{{ svc.name }}</a>
+                </td>
+                <td>{{ svc.description[:60] }}{% if svc.description|length > 60 %}...{% endif %}</td>
+                <td>
+                    <span class="badge bg-secondary me-1">{{ {'fabric_token': 'FABRIC nodes', 'external': 'External'}.get(svc.auth_mode, svc.auth_mode) }}</span>
+                    {% if svc.auth_mode == 'external' %}
+                        <a href="{{ svc.external_url }}" target="_blank" rel="noopener" class="small">{{ svc.external_url }}</a>
+                    {% elif svc.nodes_json %}
+                        {% for node in svc.nodes_json|from_json %}
+                        <span class="badge bg-light text-dark me-1">{{ node.name }}</span>
+                        {% endfor %}
+                    {% else %}
+                        <code>{{ svc.node_ipv6 }}</code>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if svc.status == 'active' %}
+                        <span class="badge bg-success">Active</span>
+                    {% elif svc.status == 'down' %}
+                        <span class="badge bg-danger">Down</span>
+                    {% else %}
+                        <span class="badge bg-secondary">{{ svc.status }}</span>
+                    {% endif %}
+                </td>
+                <td>{{ svc.created_at.strftime('%Y-%m-%d') if svc.created_at else '' }}</td>
+                <td>
+                    <button class="btn btn-sm btn-outline-danger delete-svc-btn"
+                            data-name="{{ svc.name }}">
+                        Delete
+                    </button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="text-center mt-5">
+    <p class="text-muted fs-5">You haven't registered any services yet.</p>
+    <a href="/register_service" class="btn btn-primary mt-2">Register a Service</a>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.delete-svc-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        const name = btn.dataset.name;
+        if (!confirm(`Delete service "${name}"? This cannot be undone.`)) return;
+
+        const resp = await fetch(`/api/services/${name}`, {method: 'DELETE'});
+        if (resp.ok) {
+            window.location.reload();
+        } else {
+            const data = await resp.json();
+            alert(data.error || 'Failed to delete service.');
+        }
+    });
+});
+</script>
+{% endblock %}

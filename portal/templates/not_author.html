@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Not authorized - FABRIC Service Portal{% endblock %}
+{% block content %}
+<div class="row justify-content-center mt-5">
+    <div class="col-md-6">
+        <div class="alert alert-warning">
+            <h5>You can't register services yet</h5>
+            <p class="mb-0">
+                Registering services is limited to members of the FABRIC Service Portal
+                project. Please request to join it in the FABRIC portal, then log in again.
+                You can still <a href="/available_services">browse and use services</a>.
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}

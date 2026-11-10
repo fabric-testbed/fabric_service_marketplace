@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Available Services - FABRIC Service Portal{% endblock %}
+{% block content %}
+<h2 class="mb-4">Available FABRIC Services</h2>
+
+{% if services %}
+<div class="row row-cols-1 row-cols-md-3 g-4">
+    {% for svc in services %}
+    <div class="col">
+        <a href="/available_services/{{ svc.name }}" class="text-decoration-none">
+            <div class="card h-100 shadow-sm service-card">
+                <div class="card-img-top d-flex align-items-center justify-content-center"
+                     style="height: 120px; background-color: {{ svc.icon_color }}20;">
+                    <div class="rounded-circle d-flex align-items-center justify-content-center"
+                         style="width: 60px; height: 60px; background-color: {{ svc.icon_color }};">
+                        <span class="text-white fw-bold fs-4">
+                            {{ svc.name[0]|upper }}
+                        </span>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <h5 class="card-title text-dark">{{ svc.name }}</h5>
+                    <p class="card-text text-muted small">
+                        {{ svc.description[:100] }}{% if svc.description|length > 100 %}...{% endif %}
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent d-flex justify-content-between align-items-center">
+                    <small class="text-muted">by {{ svc.owner.username }}</small>
+                    {% if svc.auth_mode == 'external' %}<span class="badge bg-info text-dark">External site</span>{% endif %}
+                    {% if svc.status == 'active' %}
+                        <span class="badge bg-success">Active</span>
+                    {% elif svc.status == 'down' %}
+                        <span class="badge bg-danger">Down</span>
+                    {% else %}
+                        <span class="badge bg-secondary">{{ svc.status }}</span>
+                    {% endif %}
+                </div>
+            </div>
+        </a>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="text-center mt-5">
+    <p class="text-muted fs-5">No services registered yet.</p>
+    <a href="/login" class="btn btn-primary mt-2">Register the First Service</a>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Test a FABRIC Token - FABRIC Service Portal{% endblock %}
+{% block content %}
+<div class="row justify-content-center mt-4">
+    <div class="col-lg-8">
+        <h2 class="mb-2">Test a FABRIC token</h2>
+        <div class="alert alert-secondary small">
+            For testing. Normally users sign in with FABRIC on the <a href="/login">login page</a>.
+        </div>
+        <p class="text-muted">
+            Paste a real FABRIC <strong>service</strong> token to see what this portal gets from it. Nothing is
+            saved and you are not logged in. The token is checked with
+            <code>{{ uis_url }}</code>.
+        </p>
+        <textarea id="token" class="form-control mb-3" rows="6"
+                  placeholder="The JSON token from the FABRIC portal, or just the id_token string"></textarea>
+        <button id="check-btn" class="btn btn-primary">Check token</button>
+        <button id="login-btn" class="btn btn-outline-secondary d-none">Log in with this token</button>
+
+        <div id="error" class="alert alert-danger mt-3 d-none"></div>
+        <div id="result" class="card mt-3 d-none">
+            <div class="card-body">
+                <table class="table table-sm mb-0">
+                    <tr><th style="width:30%">Token</th><td class="text-success">Valid</td></tr>
+                    <tr><th>Name</th><td id="r-name"></td></tr>
+                    <tr><th>FABRIC UUID</th><td><code id="r-uuid"></code></td></tr>
+                    <tr><th>Email</th><td id="r-email"></td></tr>
+                    <tr><th>Projects</th><td id="r-projects"></td></tr>
+                    <tr><th>Can register services</th><td id="r-register"></td></tr>
+                    <tr><th>Services you can use</th><td id="r-services"></td></tr>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const $ = id => document.getElementById(id);
+const text = (tag, value, cls) => {
+    const el = document.createElement(tag);
+    el.textContent = value;
+    if (cls) el.className = cls;
+    return el;
+};
+
+$('check-btn').addEventListener('click', async () => {
+    $('error').classList.add('d-none');
+    $('result').classList.add('d-none');
+    $('login-btn').classList.add('d-none');
+    const token = $('token').value.trim();
+    if (!token) {
+        $('error').textContent = 'Paste a token first.';
+        $('error').classList.remove('d-none');
+        return;
+    }
+    $('check-btn').disabled = true;
+    try {
+        const resp = await fetch('/api/token_test', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({id_token: token})
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+            $('error').textContent = data.error || 'Check failed.';
+            $('error').classList.remove('d-none');
+            return;
+        }
+        $('r-name').textContent = data.name;
+        $('r-uuid').textContent = data.uuid;
+        $('r-email').textContent = data.email || '—';
+
+        const projects = $('r-projects');
+        projects.replaceChildren();
+        if (!data.project_ids.length) projects.textContent = 'None';
+        data.project_ids.forEach(p => {
+            const row = document.createElement('div');
+            row.appendChild(text('code', p));
+            if (p === data.portal_project_id) row.appendChild(text('span', 'portal project', 'badge bg-primary ms-2'));
+            projects.appendChild(row);
+        });
+
+        $('r-register').textContent = data.can_register
+            ? 'Yes' + (data.role === 'admin' ? ' (admin)' : '')
+            : 'No — not a member of the portal project ' + data.portal_project_id;
+
+        const services = $('r-services');
+        services.replaceChildren();
+        if (!data.usable_services.length) services.textContent = 'None';
+        data.usable_services.forEach(s => {
+            const row = document.createElement('div');
+            row.appendChild(text('span', s.name));
+            row.appendChild(text('span', s.auth_mode, 'badge bg-secondary ms-2'));
+            services.appendChild(row);
+        });
+
+        $('result').classList.remove('d-none');
+        $('login-btn').classList.remove('d-none');
+    } catch (e) {
+        $('error').textContent = 'Network error. Please try again.';
+        $('error').classList.remove('d-none');
+    } finally {
+        $('check-btn').disabled = false;
+    }
+});
+
+$('login-btn').addEventListener('click', async () => {
+    const resp = await fetch('/auth/login', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({id_token: $('token').value.trim(), next: {{ next_url|tojson }}})
+    });
+    const data = await resp.json();
+    if (resp.ok) {
+        window.location.href = data.next || '/';
+    } else {
+        $('error').textContent = data.error || 'Login failed.';
+        $('error').classList.remove('d-none');
+    }
+});
+</script>
+{% endblock %}

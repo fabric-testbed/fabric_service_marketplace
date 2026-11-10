@@ -1,0 +1,18 @@
+# Local configuration: copy the *.env.example files and fill them in
+portal/portal.env
+gateway/gateway.env
+
+# Created on the server by deploy.sh / the portal
+venv/
+portal/instance/
+portal/.secret_key
+*.db
+*.crt
+*.key
+
+# Python and editor clutter
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+*.tar.gz

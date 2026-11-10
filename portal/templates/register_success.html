@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Service Registered - FABRIC Service Portal{% endblock %}
+{% block content %}
+<div class="row justify-content-center mt-4">
+    <div class="col-md-8">
+        <div class="alert alert-success">
+            <h4 class="alert-heading">Service Registered Successfully!</h4>
+            <p>Your service <strong>{{ service.name }}</strong> is now available at:</p>
+            <p>
+                <a href="/available_services/{{ service.name }}" class="alert-link fs-5">
+                    /available_services/{{ service.name }}
+                </a>
+            </p>
+        </div>
+
+        {% if service.auth_mode == 'external' %}
+        <div class="alert alert-info mt-4">
+            <strong>Nothing to install.</strong>
+            The portal lists your service and links users to
+            <a href="{{ service.external_url }}" target="_blank" rel="noopener">{{ service.external_url }}</a>.
+            Your service handles its own login.
+        </div>
+        {% else %}
+        <div class="alert alert-info mt-4">
+            <strong>Next steps:</strong>
+            Copy and paste the code below into <code>app.py</code> on each of the nodes
+            listed below, implement the logic of the code and then run it using
+            <code>python app.py</code>.
+            {% if nodes %}
+            <ul class="list-unstyled mt-2 mb-0">
+                {% for node in nodes %}
+                <li><code>{{ node.name }}</code> &mdash; {{ node.ipv6 }}, port {{ node.port }}</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+            <p class="mt-2 mb-0">
+                This app checks each user's FABRIC token itself (<code>pip install flask requests</code>).
+                Users can also call it directly from their own VMs with
+                <code>Authorization: Bearer &lt;FABRIC service token&gt;</code>.
+            </p>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <strong>Flask App Code (app.py)</strong>
+                <button class="btn btn-primary btn-sm" id="copy-btn">
+                    Copy Code
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <pre class="mb-0 p-3 bg-light" style="max-height: 500px; overflow: auto;"><code id="flask-template">{{ flask_template }}</code></pre>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="mt-4">
+            <a href="/my_services" class="btn btn-outline-primary">View My Services</a>
+            <a href="/available_services/{{ service.name }}" class="btn btn-outline-success ms-2">
+                Go to Service Page
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('copy-btn')?.addEventListener('click', () => {
+    const code = document.getElementById('flask-template').textContent;
+    navigator.clipboard.writeText(code).then(() => {
+        const btn = document.getElementById('copy-btn');
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+{% block title %}Admin Dashboard - FABRIC Service Portal{% endblock %}
+{% block content %}
+<h2 class="mb-4">Admin Dashboard</h2>
+
+<!-- Users -->
+<div class="card mb-4">
+    <div class="card-header"><strong>Users</strong> ({{ users|length }})</div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Username</th>
+                        <th>FABRIC UUID</th>
+                        <th>Role</th>
+                        <th>Active</th>
+                        <th>Last Login</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for u in users %}
+                    <tr>
+                        <td>{{ u.id }}</td>
+                        <td>{{ u.username }}</td>
+                        <td><code class="small">{{ u.fabric_uuid[:16] }}...</code></td>
+                        <td>
+                            <span class="badge {{ 'bg-danger' if u.role == 'admin' else 'bg-primary' }}">
+                                {{ u.role }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if u.is_active %}
+                                <span class="badge bg-success">Yes</span>
+                            {% else %}
+                                <span class="badge bg-secondary">No</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ u.last_login_at.strftime('%Y-%m-%d %H:%M') if u.last_login_at else 'Never' }}</td>
+                        <td>
+                            <button class="btn btn-xs btn-outline-warning toggle-active-btn"
+                                    data-user-id="{{ u.id }}">
+                                {{ 'Disable' if u.is_active else 'Enable' }}
+                            </button>
+                            <button class="btn btn-xs btn-outline-info toggle-role-btn"
+                                    data-user-id="{{ u.id }}"
+                                    data-current-role="{{ u.role }}">
+                                {{ 'Demote' if u.role == 'admin' else 'Promote' }}
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Services -->
+<div class="card mb-4">
+    <div class="card-header"><strong>All Services</strong> ({{ services|length }})</div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Owner</th>
+                        <th>Node</th>
+                        <th>Status</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for svc in services %}
+                    <tr>
+                        <td><a href="/available_services/{{ svc.name }}">{{ svc.name }}</a></td>
+                        <td>{{ svc.owner.username }}</td>
+                        <td>
+                            <span class="badge bg-secondary me-1">{{ {'fabric_token': 'FABRIC nodes', 'external': 'External'}.get(svc.auth_mode, svc.auth_mode) }}</span>
+                            {% if svc.auth_mode == 'external' %}
+                                <a href="{{ svc.external_url }}" target="_blank" rel="noopener" class="small">{{ svc.external_url }}</a>
+                            {% elif svc.nodes_json %}
+                                {% for node in svc.nodes_json|from_json %}
+                                <span class="badge bg-light text-dark me-1">{{ node.name }}</span>
+                                {% endfor %}
+                            {% else %}
+                                <code>{{ svc.node_ipv6 }}</code>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="badge {{ 'bg-success' if svc.status == 'active' else 'bg-danger' }}">
+                                {{ svc.status }}
+                            </span>
+                        </td>
+                        <td>{{ svc.created_at.strftime('%Y-%m-%d') if svc.created_at else '' }}</td>
+                        <td>
+                            <button class="btn btn-xs btn-outline-danger admin-delete-svc"
+                                    data-name="{{ svc.name }}">Delete</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Auth Log -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between">
+        <strong>Recent Auth Log</strong>
+        <a href="/admin/auth_log" class="btn btn-sm btn-outline-secondary">View All</a>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>User</th>
+                        <th>Type</th>
+                        <th>Service</th>
+                        <th>Result</th>
+                        <th>IP</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in recent_auth %}
+                    <tr>
+                        <td class="small">{{ log.created_at.strftime('%m-%d %H:%M') if log.created_at else '' }}</td>
+                        <td>{{ log.username or '-' }}</td>
+                        <td><span class="badge bg-info">{{ log.auth_type }}</span></td>
+                        <td>{{ log.service_name or '-' }}</td>
+                        <td>
+                            {% if log.success %}
+                                <span class="badge bg-success">OK</span>
+                            {% else %}
+                                <span class="badge bg-danger" title="{{ log.error_message }}">FAIL</span>
+                            {% endif %}
+                        </td>
+                        <td class="small">{{ log.ip_address or '' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Usage Log -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between">
+        <strong>Recent Usage Log</strong>
+        <a href="/admin/usage_log" class="btn btn-sm btn-outline-secondary">View All</a>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>User</th>
+                        <th>Service</th>
+                        <th>Widget</th>
+                        <th>Endpoint</th>
+                        <th>Method</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in recent_usage %}
+                    <tr>
+                        <td class="small">{{ log.created_at.strftime('%m-%d %H:%M') if log.created_at else '' }}</td>
+                        <td>{{ log.consumer_name or '-' }}</td>
+                        <td>{{ log.service.name if log.service else '-' }}</td>
+                        <td>{{ log.widget_id }}</td>
+                        <td><code>{{ log.endpoint }}</code></td>
+                        <td>{{ log.method }}</td>
+                        <td>
+                            <span class="badge {{ 'bg-success' if log.response_status == 200 else 'bg-warning' }}">
+                                {{ log.response_status }}
+                            </span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.toggle-active-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        const userId = btn.dataset.userId;
+        const resp = await fetch(`/admin/users/${userId}/toggle_active`, {method: 'POST'});
+        if (resp.ok) window.location.reload();
+    });
+});
+
+document.querySelectorAll('.toggle-role-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        const userId = btn.dataset.userId;
+        const currentRole = btn.dataset.currentRole;
+        const newRole = currentRole === 'admin' ? 'user' : 'admin';
+        if (!confirm(`Change role to "${newRole}"?`)) return;
+        const resp = await fetch(`/admin/users/${userId}/set_role`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({role: newRole})
+        });
+        if (resp.ok) window.location.reload();
+    });
+});
+
+document.querySelectorAll('.admin-delete-svc').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        const name = btn.dataset.name;
+        if (!confirm(`Delete service "${name}"?`)) return;
+        const resp = await fetch(`/api/services/${name}`, {method: 'DELETE'});
+        if (resp.ok) window.location.reload();
+    });
+});
+</script>
+{% endblock %}

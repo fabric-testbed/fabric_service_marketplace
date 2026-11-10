@@ -1,0 +1,170 @@
+/* ── FABRIC Service Portal — color palette ──
+   Aligned with the main FABRIC portal:
+   - Page background: very light blue-gray
+   - Brand: dark navy blue
+   - Primary: FABRIC teal/cyan
+   - Accent: warm orange
+*/
+
+:root {
+    --fabric-navy: #1a3a5c;
+    --fabric-teal: #2c7da0;
+    --fabric-teal-dark: #1e5f7a;
+    --fabric-orange: #e88c30;
+    --fabric-bg: #f4f7fa;
+    --fabric-border: #dde4ec;
+}
+
+body {
+    background-color: var(--fabric-bg);
+    color: #333;
+}
+
+/* ── Navbar ── */
+.navbar {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+}
+
+.fabric-brand {
+    display: flex;
+    flex-direction: column;
+    line-height: 1;
+    text-decoration: none;
+}
+.fabric-logo {
+    color: var(--fabric-navy);
+    font-size: 1.6rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+.fabric-subtitle {
+    color: var(--fabric-teal);
+    font-size: 0.75rem;
+    font-weight: 500;
+    margin-top: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.navbar-light .navbar-nav .nav-link {
+    color: #2a3f54;
+    font-weight: 500;
+}
+.navbar-light .navbar-nav .nav-link:hover {
+    color: var(--fabric-teal);
+}
+
+/* ── Buttons ── */
+.btn-primary {
+    background-color: var(--fabric-teal);
+    border-color: var(--fabric-teal);
+}
+.btn-primary:hover, .btn-primary:focus {
+    background-color: var(--fabric-teal-dark);
+    border-color: var(--fabric-teal-dark);
+}
+
+.btn-outline-primary {
+    color: var(--fabric-teal);
+    border-color: var(--fabric-teal);
+}
+.btn-outline-primary:hover {
+    background-color: var(--fabric-teal);
+    border-color: var(--fabric-teal);
+}
+
+/* ── Cards ── */
+.card {
+    border: 1px solid var(--fabric-border);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+.card-header {
+    background-color: #fafbfd;
+    border-bottom: 1px solid var(--fabric-border);
+    color: var(--fabric-navy);
+}
+
+/* ── Headings ── */
+h1, h2, h3, h4 {
+    color: var(--fabric-navy);
+}
+
+/* ── Landing page cards ── */
+.landing-card {
+    transition: transform 0.2s, box-shadow 0.2s;
+    cursor: pointer;
+    border: 1px solid var(--fabric-border);
+}
+.landing-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 25px rgba(44, 125, 160, 0.15) !important;
+}
+
+/* ── Service gallery cards ── */
+.service-card {
+    transition: transform 0.15s, box-shadow 0.15s;
+    border: 1px solid var(--fabric-border);
+}
+.service-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(44, 125, 160, 0.15) !important;
+}
+
+/* ── Widget builder canvas ── */
+#widget-canvas {
+    min-height: 200px;
+    background: #fafbfd;
+    border-radius: 4px;
+}
+
+.widget-config-card {
+    border-left: 4px solid var(--fabric-teal);
+    background: #fff;
+}
+
+.widget-config-card .remove-widget-btn {
+    opacity: 0.5;
+}
+.widget-config-card .remove-widget-btn:hover {
+    opacity: 1;
+}
+
+/* ── Widget responses on service pages ── */
+.widget-response {
+    max-height: 300px;
+    overflow: auto;
+}
+.widget-response pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* ── Admin table tweaks ── */
+.btn-xs {
+    padding: 0.15rem 0.4rem;
+    font-size: 0.75rem;
+}
+
+/* ── Form field builder ── */
+.input-field-row, .output-field-row {
+    background: #f1f5f9;
+    border-radius: 4px;
+    padding: 8px;
+    margin-bottom: 4px;
+}
+
+/* ── Links ── */
+a {
+    color: var(--fabric-teal);
+}
+a:hover {
+    color: var(--fabric-teal-dark);
+}
+
+/* ── Alerts: keep Bootstrap defaults but tweak info to match teal ── */
+.alert-info {
+    background-color: #e6f0f6;
+    border-color: #b8d4e0;
+    color: var(--fabric-navy);
+}

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Usage Log - Admin{% endblock %}
+{% block content %}
+<h2 class="mb-4">Usage Log</h2>
+
+<form class="row g-2 mb-3" method="get">
+    <div class="col-auto">
+        <input type="text" name="service" class="form-control form-control-sm"
+               placeholder="Filter by service name" value="{{ filter_service or '' }}">
+    </div>
+    <div class="col-auto">
+        <input type="number" name="user_id" class="form-control form-control-sm"
+               placeholder="Filter by user ID" value="{{ filter_user_id or '' }}">
+    </div>
+    <div class="col-auto">
+        <button type="submit" class="btn btn-sm btn-primary">Filter</button>
+        <a href="/admin/usage_log" class="btn btn-sm btn-outline-secondary">Clear</a>
+    </div>
+</form>
+
+<div class="table-responsive">
+    <table class="table table-sm table-hover">
+        <thead>
+            <tr>
+                <th>Time</th>
+                <th>User</th>
+                <th>Service</th>
+                <th>Widget</th>
+                <th>Endpoint</th>
+                <th>Method</th>
+                <th>Params</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for log in logs.items %}
+            <tr>
+                <td class="small">{{ log.created_at.strftime('%Y-%m-%d %H:%M:%S') if log.created_at else '' }}</td>
+                <td>{{ log.consumer_name or '-' }}</td>
+                <td>{{ log.service.name if log.service else '-' }}</td>
+                <td>{{ log.widget_id }}</td>
+                <td><code>{{ log.endpoint }}</code></td>
+                <td>{{ log.method }}</td>
+                <td class="small"><code>{{ (log.request_params or '-')[:80] }}</code></td>
+                <td>
+                    <span class="badge {{ 'bg-success' if log.response_status == 200 else 'bg-warning' }}">
+                        {{ log.response_status }}
+                    </span>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Pagination -->
+{% if logs.has_prev or logs.has_next %}
+<nav>
+    <ul class="pagination justify-content-center">
+        <li class="page-item {{ 'disabled' if not logs.has_prev }}">
+            <a class="page-link" href="?page={{ logs.prev_num }}&service={{ filter_service or '' }}&user_id={{ filter_user_id or '' }}">Prev</a>
+        </li>
+        <li class="page-item disabled">
+            <span class="page-link">Page {{ logs.page }} of {{ logs.pages }}</span>
+        </li>
+        <li class="page-item {{ 'disabled' if not logs.has_next }}">
+            <a class="page-link" href="?page={{ logs.next_num }}&service={{ filter_service or '' }}&user_id={{ filter_user_id or '' }}">Next</a>
+        </li>
+    </ul>
+</nav>
+{% endif %}
+{% endblock %}
