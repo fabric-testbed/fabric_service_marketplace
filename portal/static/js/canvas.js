@@ -1,12 +1,12 @@
 /**
  * Widget builder logic for /register_service
- * Access mode (fabric_token / external), then for node-based services
+ * Access mode (fabric_token / link), then for node-based services
  * one Input Form widget with instructions, per-field help text and output fields.
  */
 
 let currentWidget = null;
 
-// ── Access mode: fabric_token (app on the author's nodes) or external (link only) ──
+// ── Access mode: fabric_token (app on the author's nodes) or link (a website with its own login; admins only) ──
 
 function getAuthMode() {
     const checked = document.querySelector('input[name="auth-mode"]:checked');
@@ -20,11 +20,11 @@ function setAuthMode(mode) {
 }
 
 function applyAuthMode() {
-    const external = getAuthMode() === 'external';
-    // External services have no nodes, widget, code or project gate
-    document.getElementById('external-url-section').classList.toggle('d-none', !external);
+    const isLink = getAuthMode() === 'link';
+    // Website links have no nodes, widget, code or project gate
+    document.getElementById('link-url-section').classList.toggle('d-none', !isLink);
     for (const id of ['projects-section', 'nodes-section', 'widget-section', 'preview-section']) {
-        document.getElementById(id).classList.toggle('d-none', external);
+        document.getElementById(id).classList.toggle('d-none', isLink);
     }
     schedulePreview();
 }
@@ -45,7 +45,7 @@ async function updatePreview() {
     const statusEl = document.getElementById('preview-status');
     if (!codeEl) return;
 
-    if (getAuthMode() === 'external') return;
+    if (getAuthMode() === 'link') return;
     const collected = collectWidgets();
     const validWidgets = collected.filter(w => w.endpoint && w.label);
 
@@ -372,7 +372,7 @@ function loadServiceData(data) {
     document.getElementById('svc-name').readOnly = true;
     document.getElementById('svc-desc').value = data.description;
     document.getElementById('svc-color').value = data.icon_color;
-    document.getElementById('svc-external-url').value = data.external_url || '';
+    document.getElementById('svc-link-url').value = data.link_url || '';
 
     for (const uuid of data.access_project_ids) addProjectRow(uuid);
     for (const node of data.nodes) addNodeRow(node);
@@ -380,7 +380,7 @@ function loadServiceData(data) {
     if (data.nodes.length === 0) addNodeRow();
 
     if (!data.widgets || data.widgets.length === 0) {
-        createWidgetCard('form');  // external services have none; keep a default if mode is switched
+        createWidgetCard('form');  // website links have none; keep a default if mode is switched
     } else {
         const w = data.widgets[0];
         const card = createWidgetCard(w.type);
@@ -434,14 +434,14 @@ document.getElementById('register-btn').addEventListener('click', async () => {
     const accessProjects = collectProjects();
     const iconColor = document.getElementById('svc-color').value;
     const authMode = getAuthMode();
-    const externalUrl = document.getElementById('svc-external-url').value.trim();
+    const linkUrl = document.getElementById('svc-link-url').value.trim();
     const showError = (msg) => { errorDiv.textContent = msg; errorDiv.classList.remove('d-none'); };
 
     if (!serviceName) { showError('Please fill in the service name.'); return; }
 
     let collectedWidgets = [];
-    if (authMode === 'external') {
-        if (!externalUrl) { showError('Please enter the service URL.'); return; }
+    if (authMode === 'link') {
+        if (!linkUrl) { showError('Please enter the service URL.'); return; }
     } else {
         if (accessProjects.length === 0) { showError('Please add at least one allowed project UUID.'); return; }
         if (nodes.length === 0) { showError('Please add at least one node.'); return; }
@@ -468,7 +468,7 @@ document.getElementById('register-btn').addEventListener('click', async () => {
             body: JSON.stringify({
                 service_name: serviceName, description, nodes,
                 access_project_ids: accessProjects, icon_color: iconColor,
-                widgets: collectedWidgets, auth_mode: authMode, external_url: externalUrl
+                widgets: collectedWidgets, auth_mode: authMode, link_url: linkUrl
             })
         });
         const data = await resp.json();

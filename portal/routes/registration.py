@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 from flask import Blueprint, request, jsonify, session, redirect, render_template, current_app
 
 from access import author_page, author_api
-from models import Service, SERVICE_AUTH_MODES, db
+from models import Service, User, SERVICE_AUTH_MODES, db
 from template_generator import generate_flask_template
 
 registration_bp = Blueprint('registration', __name__)
@@ -38,6 +38,8 @@ def _validate_nodes_and_widgets(nodes, widgets):
         if not ENDPOINT_RE.match(endpoint) or '..' in endpoint or '//' in endpoint:
             return (f"Invalid endpoint '{endpoint}'. Use a path on your node like "
                     f"/api/service_config or /v1/measure (letters, digits, - _ . /).")
+        if endpoint.rstrip('/') == '/health':
+            return "/health is used by the app's health check; choose another endpoint."
         if w.get('method') not in ('GET', 'POST'):
             return "Widget method must be GET or POST."
 
@@ -63,7 +65,7 @@ def _validate_nodes_and_widgets(nodes, widgets):
     return None
 
 
-def _validate_external_url(url):
+def _validate_link_url(url):
     parsed = urlparse(url or '')
     if parsed.scheme not in ('http', 'https') or not parsed.netloc:
         return "Enter the service's web address, starting with https://"
@@ -75,14 +77,19 @@ def _apply_service_input(service, data):
     auth_mode = data.get('auth_mode', 'fabric_token')
     if auth_mode not in SERVICE_AUTH_MODES:
         return "Unknown access mode."
+    if auth_mode == 'link':
+        # Checked against the database, like the admin pages, not the session
+        user = User.query.get(session['portal_user']['id'])
+        if not user or user.role != 'admin':
+            return "Only admins can add website links."
 
-    if auth_mode == 'external':
-        # External: no nodes, no widget, no project gate; the service has its own login
-        url = (data.get('external_url') or '').strip()
-        error = _validate_external_url(url)
+    if auth_mode == 'link':
+        # Website link: no nodes, no widget, no project gate; the website has its own login
+        url = (data.get('link_url') or '').strip()
+        error = _validate_link_url(url)
         if error:
             return error
-        service.external_url = url
+        service.link_url = url
         service.access_project_id = None
         service.access_project_ids_json = None
         service.node_ipv6 = None
@@ -98,7 +105,7 @@ def _apply_service_input(service, data):
         if error:
             return error
         # First node / project also go in the legacy single-value columns
-        service.external_url = None
+        service.link_url = None
         service.access_project_id = access_project_ids[0]
         service.access_project_ids_json = json.dumps(access_project_ids)
         service.node_ipv6 = nodes[0]['ipv6']
@@ -113,8 +120,8 @@ def _apply_service_input(service, data):
 
 
 def _template_for(service):
-    """The Flask app the author runs on their nodes, or None for external services."""
-    if service.auth_mode == 'external':
+    """The Flask app the author runs on their nodes, or None for website links."""
+    if service.auth_mode == 'link':
         return None
     nodes = json.loads(service.nodes_json) if service.nodes_json else []
     port = nodes[0]['port'] if nodes else service.node_port
@@ -201,7 +208,7 @@ def edit_service_page(service_name):
         'description': service.description or '',
         'icon_color': service.icon_color or '#3B82F6',
         'auth_mode': service.auth_mode,
-        'external_url': service.external_url or '',
+        'link_url': service.link_url or '',
         'nodes': json.loads(service.nodes_json) if service.nodes_json else [],
         'access_project_ids': projects,
         'widgets': json.loads(service.canvas_json),

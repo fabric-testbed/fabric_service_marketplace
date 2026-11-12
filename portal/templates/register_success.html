@@ -13,11 +13,11 @@
             </p>
         </div>
 
-        {% if service.auth_mode == 'external' %}
+        {% if service.auth_mode == 'link' %}
         <div class="alert alert-info mt-4">
             <strong>Nothing to install.</strong>
             The portal lists your service and links users to
-            <a href="{{ service.external_url }}" target="_blank" rel="noopener">{{ service.external_url }}</a>.
+            <a href="{{ service.link_url }}" target="_blank" rel="noopener">{{ service.link_url }}</a>.
             Your service handles its own login.
         </div>
         {% else %}
@@ -34,9 +34,11 @@
             </ul>
             {% endif %}
             <p class="mt-2 mb-0">
-                This app checks each user's FABRIC token itself (<code>pip install flask requests</code>).
-                Users can also call it directly from their own VMs with
-                <code>Authorization: Bearer &lt;FABRIC service token&gt;</code>.
+                Run it with <code>pip install flask requests</code> and <code>python app.py</code>.
+                Fill in the parts marked <code>&gt;&gt;&gt; FILL IN &lt;&lt;&lt;</code>. The FABRIC token check
+                (part 3) is optional: with it on, users can also call your app directly from their own VMs with
+                <code>Authorization: Bearer &lt;FABRIC service token&gt;</code>. <code>GET /health</code>
+                shows whether the app is running.
             </p>
         </div>
 

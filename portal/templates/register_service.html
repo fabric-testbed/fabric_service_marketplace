@@ -9,30 +9,31 @@
 
 <div class="row">
     <div class="col-12">
-        <!-- Access mode -->
-        <div class="card mb-3">
+        <!-- Access mode. Only admins can add website links, so other authors don't see
+             this choice; the server enforces it too. -->
+        <div class="card mb-3{% if not current_user or current_user.role != 'admin' %} d-none{% endif %}">
             <div class="card-header"><strong>How do users get access?</strong></div>
             <div class="card-body">
                 <div class="form-check mb-2">
                     <input class="form-check-input" type="radio" name="auth-mode" id="mode-fabric_token" value="fabric_token" checked>
                     <label class="form-check-label" for="mode-fabric_token">
                         <strong>App on my FABRIC nodes</strong>
-                        <div class="form-text mt-0">You run the generated app on your nodes. The portal passes each user's
-                            FABRIC service token to it, and the app checks it with FABRIC. Users can also call your app
-                            directly from their own VMs with their token.</div>
+                        <div class="form-text mt-0">You run a small web app on your nodes (the generated Flask app below
+                            is a starting point). The portal logs users in and checks your allowed projects before it passes
+                            their requests on. Checking each user's FABRIC token in your app is optional.</div>
                     </label>
                 </div>
                 <div class="form-check">
-                    <input class="form-check-input" type="radio" name="auth-mode" id="mode-external" value="external">
-                    <label class="form-check-label" for="mode-external">
-                        <strong>External web service</strong> (link only)
-                        <div class="form-text mt-0">Already running on its own website with its own login. The portal lists
-                            it and links to it; nothing to install.</div>
+                    <input class="form-check-input" type="radio" name="auth-mode" id="mode-link" value="link">
+                    <label class="form-check-label" for="mode-link">
+                        <strong>Website link</strong>
+                        <div class="form-text mt-0">Admins only. Already running on its own website with its own login.
+                            The portal lists it and links to it; nothing to install.</div>
                     </label>
                 </div>
-                <div class="mt-3 d-none" id="external-url-section">
+                <div class="mt-3 d-none" id="link-url-section">
                     <label class="form-label">Service URL</label>
-                    <input type="url" id="svc-external-url" class="form-control" placeholder="https://my-service.example.org">
+                    <input type="url" id="svc-link-url" class="form-control" placeholder="https://my-service.example.org">
                 </div>
             </div>
         </div>

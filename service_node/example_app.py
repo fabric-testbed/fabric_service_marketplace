@@ -1,21 +1,23 @@
 """
-Example FABRIC service: this app checks each user's FABRIC service token itself.
-Run on your slice VM (with FABnetv6 attached):
+Example FABRIC service app. Run it on your slice VM (with FABnetv6 attached):
 
     pip install flask requests
     ALLOWED_PROJECTS=<project-uuid>[,<project-uuid>...] python example_app.py
 
-Every request must carry the user's FABRIC service token:  Authorization: Bearer <token>
-Because the app checks the token with FABRIC, it works both
-  - behind the portal: the gateway forwards the logged-in user's token, and
-  - directly, from users' own VMs on FABnetv6:
-      curl -H "Authorization: Bearer $FABRIC_TOKEN" \
-           "http://[<node ipv6>]:8080/api/service_config?target=x"
+The file has four parts:
 
-The portal's widget calls one endpoint, /api/service_config, with either
-  GET  — form inputs arrive as query parameters, or
-  POST — form inputs arrive as a JSON body.
-Whatever JSON you return is shown to the user.
+  1. Setup                              keep
+  2. Health check (GET /health)         keep: lets anyone check that your app is running
+  3. FABRIC token check                 OPTIONAL: turn off with CHECK_FABRIC_TOKEN=false
+  4. Your endpoints                     FILL IN: your service's logic
+
+How requests reach the app:
+  - Through the portal: the portal logs the user in, checks they are in one of
+    the service's allowed projects, and forwards their request through the
+    gateway, adding their FABRIC token and X-Fabric-User-* headers.
+  - Directly, from a user's own slice VM on FABnetv6:
+      curl -H "Authorization: Bearer $FABRIC_TOKEN" \\
+           "http://[<node ipv6>]:8080/api/service_config?target=x"
 """
 import base64
 import json
@@ -27,17 +29,43 @@ from functools import wraps
 import requests
 from flask import Flask, g, jsonify, request
 
+
+# ═══ 1. Setup (keep) ═════════════════════════════════════════════════════════
+
 app = Flask(__name__)
-FABRIC_UIS_URL = os.environ.get("FABRIC_UIS_URL", "https://uis.fabric-testbed.net").rstrip("/")
-# Users must belong to at least one of these FABRIC projects (empty = any valid user)
-ALLOWED_PROJECTS = {p.strip() for p in os.environ.get("ALLOWED_PROJECTS", "").split(",") if p.strip()}
 PORT = int(os.environ.get("SERVICE_PORT", "8080"))
 
-_cache = {}  # token -> (expires_at, user); avoids asking FABRIC on every request
 
-# Only FABRIC "service" tokens are accepted. A "resource" token can create and
-# delete slices as the user, so users should never send one to a service.
+# ═══ 2. Health check (keep) ══════════════════════════════════════════════════
+# Answers without a token, so the portal, the author or a monitoring tool can
+# check that the app is running. Keep it fast and don't return private data.
+
+@app.route("/health")
+def health():
+    return jsonify({"status": "ok"})
+
+
+# ═══ 3. FABRIC token check (OPTIONAL) ════════════════════════════════════════
+# Your node's FABnetv6 address can be reached from any FABRIC slice, not only
+# through the portal. The portal already checks users before forwarding their
+# requests, but direct callers skip the portal.
+#
+# With the check ON (default), only FABRIC users in your allowed projects can
+# call your endpoints, from the portal or directly, and caller() tells you
+# reliably who they are (e.g. to record who used what).
+#
+# With the check OFF, anyone on FABnetv6 can call your endpoints. caller() then
+# reads the X-Fabric-User-* headers the portal adds: fine for display, but a
+# direct caller can send any values. Turn it off only if that is acceptable.
+
+CHECK_FABRIC_TOKEN = os.environ.get("CHECK_FABRIC_TOKEN", "true").lower() != "false"
+# Users must belong to at least one of these FABRIC projects (empty = any FABRIC user)
+ALLOWED_PROJECTS = {p.strip() for p in os.environ.get("ALLOWED_PROJECTS", "").split(",") if p.strip()}
+FABRIC_UIS_URL = os.environ.get("FABRIC_UIS_URL", "https://uis.fabric-testbed.net").rstrip("/")
+# Only "service" tokens are accepted: a "resource" token can create and delete
+# slices as the user, so users should never send one to a service.
 REQUIRED_SCOPE = "service"
+_cache = {}  # token -> (expires_at, user); avoids asking FABRIC on every request
 
 
 def token_scope(token):
@@ -75,9 +103,13 @@ def fabric_user(token):
 
 
 def require_auth(f):
-    """Reject requests without a valid FABRIC token from an allowed project."""
+    """With the check on: refuse requests without a valid FABRIC service token
+    from an allowed project. With it off: let every request through."""
     @wraps(f)
     def decorated(*args, **kwargs):
+        g.user = None
+        if not CHECK_FABRIC_TOKEN:
+            return f(*args, **kwargs)
         auth = request.headers.get("Authorization", "")
         if not auth.startswith("Bearer "):
             return jsonify({"error": "Missing FABRIC token"}), 401
@@ -95,9 +127,23 @@ def require_auth(f):
 
 
 def caller():
-    """The FABRIC user who made this request (verified with FABRIC above)."""
-    return {"uuid": g.user["uuid"], "name": g.user["name"]}
+    """Who made this request.
+    Check on: verified with FABRIC. Check off: from the portal's X-Fabric-User-*
+    headers (None for direct calls, and a direct caller can fake them)."""
+    if g.get("user"):
+        return {"uuid": g.user["uuid"], "name": g.user["name"], "verified": True}
+    return {"uuid": request.headers.get("X-Fabric-User-Uuid"),
+            "name": request.headers.get("X-Fabric-User-Name"), "verified": False}
 
+
+# ═══ 4. Your endpoints (FILL IN) ═════════════════════════════════════════════
+# One route per portal widget. The path and method must match the widget's
+# endpoint and method on the registration form.
+#   GET:  the widget's form inputs arrive as query parameters
+#   POST: they arrive as a JSON body
+# Whatever JSON you return is shown to the user.
+# @require_auth applies the token check from part 3 (it does nothing when the
+# check is off).
 
 @app.route("/api/service_config", methods=["GET", "POST"])
 @require_auth
@@ -108,7 +154,7 @@ def service_config():
     else:
         inputs = request.args.to_dict()
 
-    # ── Replace this with your service's logic ──
+    # >>> FILL IN: your service's logic <<<
     # e.g. run a command with subprocess.run([...]) or call another local API.
     result = f"Hello {caller()['name']}, {platform.node()} received {inputs}"
 

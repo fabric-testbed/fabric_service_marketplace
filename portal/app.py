@@ -17,14 +17,14 @@ def _upgrade_database():
     existing = {c['name'] for c in db.inspect(db.engine).get_columns('services')}
     new_columns = {
         'auth_mode': "VARCHAR NOT NULL DEFAULT 'fabric_token'",
-        'external_url': 'VARCHAR',
+        'link_url': 'VARCHAR',
     }
     with db.engine.begin() as conn:
         for name, ddl in new_columns.items():
             if name not in existing:
                 conn.execute(db.text(f'ALTER TABLE services ADD COLUMN {name} {ddl}'))
         conn.execute(db.text("UPDATE services SET auth_mode = 'fabric_token' "
-                             "WHERE auth_mode NOT IN ('fabric_token', 'external')"))
+                             "WHERE auth_mode NOT IN ('fabric_token', 'link')"))
 
 
 def create_app():

@@ -2,7 +2,8 @@
 
 Lets FABRIC researchers publish services, and lets other FABRIC users find and
 use them. A service either runs on the author's slice nodes (reached over
-FABnetv6 through the gateway) or is an existing website the portal links to.
+FABnetv6 through the gateway) or, added by an admin, is an existing website the
+portal links to.
 
 ```bash
 git clone https://github.com/fabric-testbed/fabric_service_marketplace.git
@@ -34,11 +35,11 @@ git clone https://github.com/fabric-testbed/fabric_service_marketplace.git
               ▼
 ┌────────────────────────────┐
 │ service_node/              │  Service author's VMs, in their own slices
-│ author's Flask app         │  - checks the user's token with FABRIC
+│ author's Flask app         │  - optionally checks the user's token with FABRIC
 └────────────────────────────┘
 ```
 
-External services don't use the gateway: the portal just links to them.
+Website links don't use the gateway: the portal just links to them.
 
 | Folder | Runs on | Config file | Deploy |
 |---|---|---|---|
@@ -66,18 +67,27 @@ URL, TLS cert, IP allowlist and secret in one call.
 
 ## Two kinds of service
 
-The author picks one on the registration form:
+Service authors register apps on their FABRIC nodes. Admins can also list an
+existing website (for example a FABRIC-run service with its own login) as a
+link; other authors don't see that option, and the portal refuses it from them.
 
-| | **App on my FABRIC nodes** (`fabric_token`) | **External web service** (`external`) |
+| | **App on my FABRIC nodes** (`fabric_token`) | **Website link** (`link`, admins only) |
 |---|---|---|
 | Use when | The service runs on the author's slice VMs | Already a website with its own login |
-| Who checks the user | The portal (project membership) **and** the node (checks the token with FABRIC) | The website itself |
+| Who checks the user | The portal (login and project membership); optionally also the node (checks the token with FABRIC, on by default) | The website itself |
 | Node receives | `Authorization: Bearer <user's FABRIC service token>` + `X-Fabric-User-Uuid/Name` | — (not proxied) |
-| Author registers | allowed projects, FABnetv6 nodes, widget | a URL |
-| Author runs | the generated `app.py`, `service_node/example_app.py`, or their own existing API (any path, if it checks the token) | nothing |
-| Usable without the portal | Yes: `curl -H "Authorization: Bearer $FABRIC_TOKEN" http://[node]:8080/...` | Yes, it's a website |
+| Registered by | any author: allowed projects, FABnetv6 nodes, widget | an admin: a URL |
+| Author runs | the generated `app.py` (built from the form), `service_node/example_app.py`, or their own existing API (any path) | nothing |
+| Usable without the portal | Yes, from any VM on FABnetv6: `curl -H "Authorization: Bearer $FABRIC_TOKEN" http://[node]:8080/...` | Yes, it's a website |
+| Health check | `GET /health` on the node, no token needed | — |
 
 Browser cookies and headers never reach the node.
+
+The generated app has four parts: setup and `GET /health` (keep), the FABRIC
+token check (**optional**, switch `CHECK_FABRIC_TOKEN`), and the endpoints from
+the form (**fill in**). The portal already checks users before forwarding;
+the token check also protects the node from direct callers on FABnetv6 and
+tells it reliably who each caller is. See [docs/SETUP.md, section 3](docs/SETUP.md#3-service-authors).
 
 ## Login and tokens
 
@@ -101,8 +111,8 @@ contents, so any valid token gives the full list.
 claim: `resource` tokens can create and delete slices as the user, `service`
 tokens only identify them. Because the portal passes the user's token to
 service nodes, it refuses any token whose scope isn't
-`PORTAL_REQUIRED_TOKEN_SCOPE` (default `service`). The generated node apps
-refuse non-service tokens too, so users calling a node directly from their VMs
+`PORTAL_REQUIRED_TOKEN_SCOPE` (default `service`). With the token check on, the
+generated node apps refuse non-service tokens too, so users calling a node directly from their VMs
 also need a service token (not the `resource` token a JupyterHub notebook uses).
 
 The token is kept server-side (`user_tokens` table, deleted at logout).

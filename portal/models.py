@@ -7,8 +7,8 @@ db = SQLAlchemy()
 # How a service decides who may call it:
 #   fabric_token  app on the author's nodes; the portal passes the user's FABRIC
 #                 token (Authorization: Bearer) and the app checks it with FABRIC
-#   external      a web service at its own URL with its own login; portal only links to it
-SERVICE_AUTH_MODES = ('fabric_token', 'external')
+#   link          a website at its own URL with its own login (admins only); portal only links to it
+SERVICE_AUTH_MODES = ('fabric_token', 'link')
 
 
 class User(db.Model):
@@ -41,7 +41,7 @@ class Service(db.Model):
     node_port = db.Column(db.Integer, nullable=True)       # legacy single-node
     nodes_json = db.Column(db.Text, nullable=True)         # JSON array of {name, ipv6, port}
     auth_mode = db.Column(db.String, nullable=False, default='fabric_token')  # see SERVICE_AUTH_MODES
-    external_url = db.Column(db.String, nullable=True)       # external services only
+    link_url = db.Column(db.String, nullable=True)       # website links only
     icon_color = db.Column(db.String, default='#3B82F6')
     canvas_json = db.Column(db.Text, nullable=False)  # JSON array of widgets
     status = db.Column(db.String, nullable=False, default='active')

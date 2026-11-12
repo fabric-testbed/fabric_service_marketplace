@@ -26,7 +26,7 @@
                 </div>
                 <div class="card-footer bg-transparent d-flex justify-content-between align-items-center">
                     <small class="text-muted">by {{ svc.owner.username }}</small>
-                    {% if svc.auth_mode == 'external' %}<span class="badge bg-info text-dark">External site</span>{% endif %}
+                    {% if svc.auth_mode == 'link' %}<span class="badge bg-info text-dark">Website link</span>{% endif %}
                     {% if svc.status == 'active' %}
                         <span class="badge bg-success">Active</span>
                     {% elif svc.status == 'down' %}

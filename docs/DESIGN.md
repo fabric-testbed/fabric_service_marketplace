@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-The **FABRIC Service Portal** is a self-service web application for FABRIC testbed researchers. It lets authenticated authors register services, generates working Flask code automatically, and gives consumers a shareable web page per service. A service is one of two kinds (§6.1): an app on the author's FABRIC nodes that checks each user's FABRIC service token itself (**node service**, `fabric_token`), or an existing website the portal links to (**external**). For node services the page's widget proxies to the author's backend over the private FABnetv6 network.
+The **FABRIC Service Portal** is a self-service web application for FABRIC testbed researchers. It lets authenticated authors register services, generates working Flask code automatically, and gives consumers a shareable web page per service. A service is one of two kinds (§6.1): an app on the author's FABRIC nodes, which receives each user's FABRIC service token and can check it itself (**node service**, `fabric_token`), or an existing website the portal links to (**website link**, `link`, added by admins). For node services the page's widget proxies to the author's backend over the private FABnetv6 network.
 
 The system has three parts: the **portal** (central infrastructure, public IP), the **gateway** (a FABRIC VM with FABNetv4Ext + FABnetv6) and the authors' **service nodes**. The portal handles everything users see and relays widget calls through the gateway, which reaches service nodes over FABnetv6. It provides:
 
@@ -10,7 +10,7 @@ The system has three parts: the **portal** (central infrastructure, public IP), 
 2. A **login** for authors and consumers: a "Sign in with FABRIC" button for the automated login (e.g. CILogon, to be added), plus a token test page for testing.
 3. A **registration form** with an access-mode choice, a widget builder with live Flask code preview, and an edit mode for existing services.
 4. An **available services gallery** listing all registered services.
-5. **Individual service pages** where consumers in a service's allowed projects use its widget (node services), or follow its link (external).
+5. **Individual service pages** where consumers in a service's allowed projects use its widget (node services), or follow its link (website links).
 6. An **admin dashboard** for user/service management and audit logs.
 
 A **SQLite database** stores persistent user identity, service ownership, and audit logs. Authentication is delegated to FABRIC UIS; the DB tracks *who* users are across token changes, *who owns what*, and *who used what*.
@@ -115,7 +115,7 @@ across reboots or slice reconfiguration (see SETUP.md).
 
 ### 4.3 Widget Builder (`/register_service`)
 Author required. Four areas:
-1. **How do users get access?**: App on my FABRIC nodes, or External web service (with a URL field). See §6.1.
+1. **How do users get access?** (shown to admins only): App on my FABRIC nodes, or Website link (with a URL field). Other authors always register an app on their nodes. See §6.1.
 2. **Service Details**: service name, description, icon color; for node services also allowed projects (multi) and slice nodes (multi).
 3. **Widget** (node services): one Input Form widget, GET or POST, with configurable input and output fields. Its endpoint (the path on the node) defaults to `/api/service_config`, the generated app's path, and can be changed to an existing API's own path.
 4. **Flask App Preview** (node services): live-updating preview of the generated Flask code, with Copy button.
@@ -126,13 +126,13 @@ Submits to `POST /api/register_service`.
 Auth required + owner. Same page as the widget builder, but pre-filled with the existing service's data and submits to `POST /api/update_service`. Service name is read-only.
 
 ### 4.5 Registration Success Page (`/register_service/success/<service_name>`)
-Shows the service URL. Node services: the generated Flask app (same as the live preview) and how to run it. External: "nothing to install".
+Shows the service URL. Node services: the generated Flask app (same as the live preview) and how to run it. Website links: "nothing to install".
 
 ### 4.6 Available Services Gallery (`/available_services`)
-No auth required. Grid of service cards with icon, name, description, owner, status, and an "External site" badge for external services. Click → service page.
+No auth required. Grid of service cards with icon, name, description, owner, status, and a "Website link" badge for website links. Click → service page.
 
 ### 4.7 Individual Service Page (`/available_services/<service_name>`)
-- **External**: shows title/description and an "Open" link to the service's URL, for everyone. Nothing is proxied.
+- **Website link**: shows title/description and an "Open" link to the service's URL, for everyone. Nothing is proxied.
 - **Node service, logged in and in an allowed project**: access is granted automatically; the widget is interactive. If the service has multiple nodes, a Target Node dropdown appears.
 - **Node service, logged in but not in an allowed project**: explanation, no widget.
 - **Node service, not logged in**: a Log in button (returns to the service page after login).
@@ -166,8 +166,8 @@ CREATE TABLE services (
     name                    TEXT UNIQUE NOT NULL,
     description             TEXT,
     owner_id                INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    auth_mode               TEXT NOT NULL DEFAULT 'fabric_token',  -- 'fabric_token' | 'external'
-    external_url            TEXT,           -- external services only
+    auth_mode               TEXT NOT NULL DEFAULT 'fabric_token',  -- 'fabric_token' | 'link'
+    link_url                TEXT,           -- website links only
     access_project_id       TEXT,           -- legacy single project (first of the list)
     access_project_ids_json TEXT,           -- JSON array of allowed project UUIDs
     node_ipv6               TEXT,           -- legacy single node (first of the list)
@@ -219,9 +219,9 @@ CREATE TABLE user_tokens (
 );
 ```
 
-For external services `nodes_json`, `node_*` and `access_project_*` are NULL and
+For website links `nodes_json`, `node_*` and `access_project_*` are NULL and
 `canvas_json` is `'[]'`. Existing databases are upgraded at start-up
-(`_upgrade_database` in `app.py`): `auth_mode` / `external_url` are added, and
+(`_upgrade_database` in `app.py`): `auth_mode` / `link_url` are added, and
 services from the removed API-key mode become `fabric_token`. An old `api_key`
 column is left in place, unused.
 
@@ -249,7 +249,8 @@ That shared code (`fetch_fabric_identity`, against `FABRIC_UIS_URL`) turns it in
 |---|---|
 | Register / edit services | member of `PORTAL_PROJECT_ID`, or admin |
 | Use a node service | member of one of the service's `access_project_ids` |
-| Use an external service | anyone (the service has its own login) |
+| Register / edit a website link | admin only (the form hides the option from others; the server refuses it) |
+| Use a website link | anyone (the service has its own login) |
 
 Projects come from the user's FABRIC roles (`/people/<uuid>`), not from the
 token's claims, so any valid token yields the full project list. `token` is the
@@ -274,17 +275,21 @@ their projects match, so there is no second token paste.
 
 Chosen per service at registration (`services.auth_mode`):
 
-| | `fabric_token` (node service) | `external` |
+| | `fabric_token` (node service) | `link` (website link, admins only) |
 |---|---|---|
 | Portal checks project membership | yes | no |
-| Node checks | `Authorization: Bearer` service token with FABRIC UIS + allowed projects | — |
+| Node checks | optional, on by default (`CHECK_FABRIC_TOKEN`): `Authorization: Bearer` service token with FABRIC UIS + allowed projects | — |
 | Node receives | `Authorization`, `X-Fabric-User-*` | not proxied |
-| Callable without the portal | yes, with the user's own service token | yes (website) |
+| Callable without the portal | yes, from FABnetv6, with the user's own service token | yes (website) |
+| Health check | `GET /health` on the node, no token | — |
 | Registration needs | projects, nodes, widget | URL |
 | Reference node app | `service_node/example_app.py` | — |
 
-Node services are checked twice on purpose: the portal gates the widget, and the
-node must check independently because it is also reachable directly over FABnetv6.
+With the token check on, node services are checked twice on purpose: the portal
+gates the widget, and the node checks independently because it is also reachable
+directly over FABnetv6. The author may turn the node's check off; the node then
+relies on the portal's check and the `X-Fabric-User-*` headers, and anyone on
+FABnetv6 can call it directly.
 
 An earlier API-key mode (the node trusted a per-service key that only the
 gateway held) was removed once FABRIC service tokens made it safe to pass the
@@ -339,7 +344,7 @@ aren't `service` scope, validates the `Authorization: Bearer` token with FABRIC
 UIS (`FABRIC_UIS_URL`), requires one of `ALLOWED_PROJECTS`, caches results for
 5 minutes, and reads the caller from the validated token.
 
-The registration form hides projects, nodes, widget and preview for external services.
+The registration form hides projects, nodes, widget and preview for website links.
 
 ### 7.4 Live Preview
 
@@ -352,10 +357,12 @@ The widget builder includes a live Flask code preview that updates automatically
 `portal/template_generator.py` produces the same shape as the reference example,
 tailored to the widget config:
 
-- `require_auth` refuses non-service tokens, validates the token with UIS, and
-  requires one of the service's allowed projects (filled in as `ALLOWED_PROJECTS`).
-- A `caller()` helper; one route per widget with the configured method (`@app.route('/api/service_config', methods=['GET'])`); each input field read from `request.args` (GET) or the JSON body (POST); the configured output fields returned as `"TODO"` placeholders, or `{"status": "ok", "caller": ...}` if none; `app.run(host='::', port=<first node's port>)`.
-- External services: no template.
+- Four marked parts: setup (keep), `GET /health` returning `{"status": "ok"}` without a token (keep), the FABRIC token check (optional), and the endpoints (fill in, marked `>>> FILL IN <<<`).
+- `require_auth`: with `CHECK_FABRIC_TOKEN = True` (default) it refuses non-service tokens, validates the token with UIS, and
+  requires one of the service's allowed projects (filled in as `ALLOWED_PROJECTS`); with `False` it lets requests through.
+- `/health` can't be used as a widget endpoint (registration refuses it).
+- A `caller()` helper (verified user with the check on; the portal's `X-Fabric-User-*` headers, marked `verified: false`, with it off); one route per widget with the configured method (`@app.route('/api/service_config', methods=['GET'])`); each input field read from `request.args` (GET) or the JSON body (POST); the configured output fields returned as `"TODO"` placeholders, or `{"status": "ok", "caller": ...}` if none; `app.run(host='::', port=<first node's port>)`.
+- Website links: no template.
 
 `tests/test_end_to_end.py` runs the example and generated apps behind the
 gateway, for GET and POST.
@@ -375,7 +382,7 @@ Gateway → node:    <METHOD> http://[<ipv6>]:<port><endpoint>?...
 
 Portal (`portal/routes/proxy.py`, `portal/gateway_client.py`):
 1. The session must have `auth_<service_name>` set.
-2. Look up the service and widget; refuse external services. Load the user's token from `user_tokens` (401 "log in again" if missing). Select the target node from `node` (validated against the service's registered nodes; defaults to the first).
+2. Look up the service and widget; refuse website links. Load the user's token from `user_tokens` (401 "log in again" if missing). Select the target node from `node` (validated against the service's registered nodes; defaults to the first).
 3. Send the request to the gateway with the target, the consumer's identity and the user's token. **Browser headers and cookies are not forwarded.**
 4. Log the call to `usage_log`. Return the body with `Content-Type: application/json`.
 
@@ -455,7 +462,7 @@ Service authors need the following on their slice nodes:
 - **Gateway isolation** — the gateway accepts calls only from the portal's IP with the shared secret, and forwards only to FABnetv6. It holds no user data.
 - **No header leakage** — browser cookies and headers are never forwarded to service nodes; they receive only the user's service token and identity.
 - **User tokens** — kept server-side in `user_tokens`, never in the cookie; deleted at logout and expired with the session (4 h). FABRIC tokens may expire sooner; nodes then return 401 and the user logs in again.
-- **External links** — external service URLs must be `http(s)://`; pages open them with `rel="noopener"`.
+- **Website links** — their URLs must be `http(s)://`; pages open them with `rel="noopener"`.
 - **Project membership** — two-level auth ensures consumers can only use services they're authorized for (per-service allowed-project list).
 - **Ownership checks** — edit/delete service endpoints verify `owner_id == session user_id` (or admin role).
 - **Request logging** — every auth attempt and every widget invocation is logged with IP address, timestamp, user, and parameters for audit trail.

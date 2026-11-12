@@ -80,9 +80,9 @@
                         <td><a href="/available_services/{{ svc.name }}">{{ svc.name }}</a></td>
                         <td>{{ svc.owner.username }}</td>
                         <td>
-                            <span class="badge bg-secondary me-1">{{ {'fabric_token': 'FABRIC nodes', 'external': 'External'}.get(svc.auth_mode, svc.auth_mode) }}</span>
-                            {% if svc.auth_mode == 'external' %}
-                                <a href="{{ svc.external_url }}" target="_blank" rel="noopener" class="small">{{ svc.external_url }}</a>
+                            <span class="badge bg-secondary me-1">{{ {'fabric_token': 'FABRIC nodes', 'link': 'Website link'}.get(svc.auth_mode, svc.auth_mode) }}</span>
+                            {% if svc.auth_mode == 'link' %}
+                                <a href="{{ svc.link_url }}" target="_blank" rel="noopener" class="small">{{ svc.link_url }}</a>
                             {% elif svc.nodes_json %}
                                 {% for node in svc.nodes_json|from_json %}
                                 <span class="badge bg-light text-dark me-1">{{ node.name }}</span>

@@ -5,7 +5,7 @@ service, picks the target node, and hands the request to the gateway
 
 The node receives Authorization: Bearer <the user's FABRIC token> plus
 X-Fabric-User-* identity headers, and checks the token with FABRIC itself.
-External services are not proxied; the portal only links to their URL.
+Website links are not proxied; the portal only links to them.
 """
 import json
 
@@ -30,7 +30,7 @@ def widget_proxy(service_name, widget_id):
     service = Service.query.filter_by(name=service_name).first()
     if not service:
         return jsonify({"error": "Service not found"}), 404
-    if service.auth_mode == 'external':
+    if service.auth_mode == 'link':
         return jsonify({"error": "This service is hosted elsewhere; open its link instead."}), 400
 
     bearer_token = token_store.get()

@@ -150,7 +150,7 @@ def token_test():
     role = existing.role if existing else 'user'
     usable = [{"name": svc.name, "auth_mode": svc.auth_mode}
               for svc in Service.query.filter_by(status='active').order_by(Service.name)
-              if svc.auth_mode == 'external' or projects & set(_allowed_projects(svc))]
+              if svc.auth_mode == 'link' or projects & set(_allowed_projects(svc))]
     return jsonify({
         "name": identity['name'], "uuid": identity['uuid'], "email": identity['email'],
         "project_ids": identity['project_ids'],

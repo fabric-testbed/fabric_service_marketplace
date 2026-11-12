@@ -7,16 +7,16 @@
         <p class="text-muted">{{ service.description }}</p>
         <p class="small text-muted">by {{ service.owner.username }}</p>
 
-        {% if external %}
+        {% if is_link %}
         <div class="card mt-4">
             <div class="card-body p-4">
                 <p class="text-muted mb-3">
                     This service is hosted on its own website and has its own login.
                 </p>
-                <a class="btn btn-primary" href="{{ service.external_url }}" target="_blank" rel="noopener">
+                <a class="btn btn-primary" href="{{ service.link_url }}" target="_blank" rel="noopener">
                     Open {{ service.name }} &#8599;
                 </a>
-                <div class="small text-muted mt-2"><code>{{ service.external_url }}</code></div>
+                <div class="small text-muted mt-2"><code>{{ service.link_url }}</code></div>
             </div>
         </div>
         {% elif not authenticated %}
@@ -119,7 +119,7 @@
 {% endblock %}
 
 {% block scripts %}
-{% if external %}
+{% if is_link %}
 {% elif authenticated %}
 <script>
     // Pass output field config to JS

@@ -36,9 +36,9 @@ def available_services():
 def service_page(service_name):
     service = Service.query.filter_by(name=service_name).first_or_404()
 
-    if service.auth_mode == 'external':
-        # External service: hosted elsewhere with its own login; anyone may follow the link
-        return render_template('service_page.html', service=service, external=True)
+    if service.auth_mode == 'link':
+        # Website link: hosted elsewhere with its own login; anyone may follow it
+        return render_template('service_page.html', service=service, is_link=True)
 
     session_key = f'auth_{service_name}'
     user = current_user()
@@ -65,7 +65,7 @@ def service_page(service_name):
     return render_template(
         'service_page.html',
         service=service,
-        external=False,
+        is_link=False,
         widgets=widgets,
         authenticated=authenticated,
         denied=denied,

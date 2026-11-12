@@ -203,7 +203,10 @@ Check with `curl -sI https://uis.fabric-testbed.net | head -1` on the portal.
 
 ### App on my FABRIC nodes
 
-On each VM in the author's slice, with FABnetv6 attached:
+The author fills in the registration form (allowed projects, nodes, and the
+widget: its endpoint, method, input and output fields). The portal then shows a
+Flask app built from that form. On each VM in the author's slice, with FABnetv6
+attached:
 
 ```bash
 sudo apt update && sudo apt install -y python3 python3-venv
@@ -215,28 +218,58 @@ python app.py         # the code shown after registering
 - The app listens on `::` so the gateway can reach it over FABnetv6; open its
   port (e.g. 8080) in the VM's firewall.
 - Register the node's **FABnetv6** address in the portal.
-- The app checks each request's `Authorization: Bearer` token with FABRIC and
-  requires a service token from one of the allowed projects (built in).
-- Users can also call it directly from their own VMs:
-  `curl -H "Authorization: Bearer $FABRIC_TOKEN" "http://[<node ipv6>]:8080/api/service_config?..."`
+
+The generated app (and the reference `service_node/example_app.py`) has four
+parts:
+
+| Part | | What it does |
+|---|---|---|
+| 1. Setup | keep | Creates the Flask app |
+| 2. Health check, `GET /health` | keep | Returns `{"status": "ok"}` without a token, so anyone can check the app is running |
+| 3. FABRIC token check | **optional** | Checks each request's FABRIC service token with FABRIC and requires one of the allowed projects. Switch: `CHECK_FABRIC_TOKEN` |
+| 4. Your endpoints | **fill in** | One route per widget; fill in the lines marked `>>> FILL IN <<<` |
+
+**Should the token check stay on?** The portal already logs users in and checks
+the service's allowed projects before forwarding a request. But the node's
+FABnetv6 address can be reached from any FABRIC slice, and direct callers skip
+the portal.
+
+- **On (default):** only FABRIC users in the allowed projects can call the
+  app, through the portal or directly from their own VMs
+  (`curl -H "Authorization: Bearer $FABRIC_TOKEN" "http://[<node ipv6>]:8080/..."`),
+  and `caller()` tells the app reliably who each caller is, e.g. to record who
+  used what.
+- **Off** (`CHECK_FABRIC_TOKEN = False`): anyone on FABnetv6 can call the app.
+  `caller()` then reads the `X-Fabric-User-Uuid/Name` headers the portal adds:
+  fine for display, but a direct caller can fake them. Use this only if that
+  is acceptable for the service.
 
 Reference app: `service_node/example_app.py`, run with
-`ALLOWED_PROJECTS=<uuid>,<uuid> python example_app.py`.
+`ALLOWED_PROJECTS=<uuid>,<uuid> python example_app.py`
+(add `CHECK_FABRIC_TOKEN=false` to turn the check off).
 
 **Already have a REST API on the node?** You don't need the generated app. On
 the registration form, change **Endpoint on your node** from
 `/api/service_config` to your API's path (e.g. `/v1/measure`) and pick GET or
 POST. The portal sends the form's inputs there (as query parameters for GET, a
-JSON body for POST) with `Authorization: Bearer <user's FABRIC service token>`,
-and shows the JSON you return. Your API must check that token, the way
+JSON body for POST) with `Authorization: Bearer <user's FABRIC service token>`
+and `X-Fabric-User-Uuid/Name`, and shows the JSON you return. Add a
+`GET /health` endpoint, and, if you want the token check, do what
 `require_auth` in the generated app does: refuse tokens whose `scope` isn't
 `service`, check the token with FABRIC (`https://uis.fabric-testbed.net`), and
-require one of your allowed projects.
+require one of your allowed projects. `/health` can't be used as a widget
+endpoint.
 
-### External web service
+The service should explain its own use, e.g. on a page of its own or in the
+author's docs.
 
-Enter the service's URL. The portal lists it and links to it; the service
-handles its own login. Nothing to install.
+### Website link (admins only)
+
+For a service that already has its own public address and login (e.g. one run
+by the FABRIC team). Only admins see this option on the registration form (make
+someone admin with `seed-admin` or on the Admin page). Enter the service's URL.
+The portal lists it and links to it; the website handles its own login.
+Nothing to install.
 
 ---
 
@@ -285,7 +318,7 @@ def fabric_login_start():
     # Remember where to return to, and a random state to check on the way back
     session['login_state'] = secrets.token_urlsafe(16)
     session['login_next'] = safe_next(request.args.get('next'), '')
-    callback = url_for('auth.fabric_login_callback', _external=True)
+    callback = request.url_root.rstrip('/') + url_for('auth.fabric_login_callback')
     login_url = ...  # the identity provider's login URL, with `callback` and session['login_state']
     return redirect(login_url)
 

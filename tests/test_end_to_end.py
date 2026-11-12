@@ -8,10 +8,11 @@ Users log in with tokens from a stand-in for FABRIC's user service
 (fabric_uis_standin.py), which the portal and the node apps check tokens against.
 
 Covers both kinds of service: an app on the author's nodes that checks the
-user's FABRIC token (fabric_token), and an external website (external).
+user's FABRIC token (fabric_token), and a website link (link, admins only).
 
 Run from the repo root:  python -m pytest tests -v
 """
+import contextlib
 import os
 import socket
 import subprocess
@@ -168,6 +169,7 @@ def test_consumer_cannot_register(portal):
     ('::1', '/', 'Invalid endpoint'),
     ('::1', '//evil/x', 'Invalid endpoint'),
     ('::1', 'api/no-slash', 'Invalid endpoint'),
+    ('::1', '/health', 'health check'),
 ])
 def test_registration_validation(portal, node_ip, endpoint, expected_error):
     client = portal.test_client()
@@ -281,7 +283,7 @@ def _start_node_app(script, port, **extra_env):
         [sys.executable, str(script)],
         env=dict(os.environ, SERVICE_PORT=str(port), **extra_env),
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    _wait_for(f'http://[::1]:{port}/api/service_config')
+    _wait_for(f'http://[::1]:{port}/health')
     return proc
 
 
@@ -366,49 +368,126 @@ def test_token_generated_template_behind_gateway(portal, fabric_uis, tmp_path, m
         assert resp.json['caller']['name'] == 'TestConsumer'
         direct = requests.request(method, f'http://[::1]:{port}/api/service_config', json={})
         assert direct.status_code == 401
+        # /health answers without a token
+        assert requests.get(f'http://[::1]:{port}/health').json() == {'status': 'ok'}
     finally:
         proc.terminate()
 
 
-# ── External web service, link only ──
+def test_generated_template_marks_optional_and_fill_in_parts(portal):
+    template = _register(portal, 'template-parts', 'GET', 8080)
+    for text in ('2. Health check (GET /health)', '3. FABRIC token check', 'OPTIONAL',
+                 'CHECK_FABRIC_TOKEN = True', '>>> FILL IN', 'target = request.args.get("target")'):
+        assert text in template, text
 
-def test_external_external_service(portal):
+
+def test_token_check_can_be_turned_off(portal, fabric_uis, tmp_path):
+    """With CHECK_FABRIC_TOKEN = False the app trusts the portal's identity headers."""
+    name, port = 'token-off', _free_port(socket.AF_INET6, '::1')
+    template = _register(portal, name, 'GET', port)
+    script = tmp_path / 'app.py'
+    script.write_text(template.replace('CHECK_FABRIC_TOKEN = True', 'CHECK_FABRIC_TOKEN = False'))
+    proc = _start_node_app(script, port, FABRIC_UIS_URL=fabric_uis)
+    try:
+        resp = _call_as_consumer(portal, name, 'GET')
+        assert resp.status_code == 200, resp.data
+        assert resp.json['caller'] == {'uuid': CONSUMER, 'name': 'TestConsumer', 'verified': False}
+        # Anyone on FABnetv6 can now call it directly
+        assert requests.get(f'http://[::1]:{port}/api/service_config').status_code == 200
+    finally:
+        proc.terminate()
+
+
+def test_example_app_health_and_token_off(fabric_uis):
+    port = _free_port(socket.AF_INET6, '::1')
+    proc = _start_node_app(EXAMPLE_APP, port, FABRIC_UIS_URL=fabric_uis, CHECK_FABRIC_TOKEN='false')
+    try:
+        assert requests.get(f'http://[::1]:{port}/health').json() == {'status': 'ok'}
+        resp = requests.get(f'http://[::1]:{port}/api/service_config?target=x')
+        assert resp.status_code == 200 and resp.json()['caller']['verified'] is False
+    finally:
+        proc.terminate()
+
+
+# ── Website link (admins only) ──
+
+@contextlib.contextmanager
+def as_admin(portal, client, user_name):
+    """Log in as user_name with the admin role; the role is reset afterwards."""
+    from models import User, db
+    login(client, user_name)  # creates the user row on first login
+    with portal.app_context():
+        User.query.filter_by(fabric_uuid=USER_IDS[user_name]).first().role = 'admin'
+        db.session.commit()
+    login(client, user_name)
+    try:
+        yield client
+    finally:
+        with portal.app_context():
+            User.query.filter_by(fabric_uuid=USER_IDS[user_name]).first().role = 'user'
+            db.session.commit()
+
+
+def test_link_needs_admin(portal):
     client = portal.test_client()
     login(client, 'TestAuthor')
     resp = client.post('/api/register_service', json={
-        'service_name': 'ext-svc', 'auth_mode': 'external',
-        'external_url': 'https://example.org/my-service', 'description': 'hosted elsewhere'})
+        'service_name': 'link-not-admin', 'auth_mode': 'link', 'link_url': 'https://example.org'})
+    assert resp.status_code == 400
+    assert 'Only admins' in resp.json['error']
+    # Switching an existing service to a link is refused too
+    _register(portal, 'stays-node-app', 'GET', 8080)
+    resp = client.post('/api/update_service', json={
+        'service_name': 'stays-node-app', 'auth_mode': 'link', 'link_url': 'https://example.org'})
+    assert resp.status_code == 400
+    # Non-admins don't see the choice on the form; admins do
+    assert b'card mb-3 d-none' in client.get('/register_service').data
+    with as_admin(portal, client, 'TestAuthor'):
+        assert b'card mb-3 d-none' not in client.get('/register_service').data
+
+
+def test_link_service(portal):
+    client = portal.test_client()
+    with as_admin(portal, client, 'TestAuthor'):
+        _check_link_service(portal, client)
+
+
+def _check_link_service(portal, client):
+    resp = client.post('/api/register_service', json={
+        'service_name': 'link-svc', 'auth_mode': 'link',
+        'link_url': 'https://example.org/my-service', 'description': 'hosted elsewhere'})
     assert resp.status_code == 201, resp.json
     assert resp.json['flask_template'] is None
 
     anonymous = portal.test_client()
-    page = anonymous.get('/available_services/ext-svc')
+    page = anonymous.get('/available_services/link-svc')
     assert page.status_code == 200
     assert b'href="https://example.org/my-service"' in page.data
-    assert b'External site' in anonymous.get('/available_services').data
+    assert b'Website link' in anonymous.get('/available_services').data
 
     # Never proxied, even for a logged-in project member
     login(anonymous, 'TestConsumer')
-    anonymous.get('/available_services/ext-svc')
-    assert anonymous.get('/available_services/ext-svc/proxy/w1').status_code in (400, 401)
-    assert b'Nothing to install' in client.get('/register_service/success/ext-svc').data
+    anonymous.get('/available_services/link-svc')
+    assert anonymous.get('/available_services/link-svc/proxy/w1').status_code in (400, 401)
+    assert b'Nothing to install' in client.get('/register_service/success/link-svc').data
 
 
 @pytest.mark.parametrize('url', ['javascript:alert(1)', 'ftp://example.org', 'example.org', ''])
-def test_external_rejects_bad_urls(portal, url):
+def test_link_rejects_bad_urls(portal, url):
     client = portal.test_client()
-    login(client, 'TestAuthor')
-    resp = client.post('/api/register_service', json={
-        'service_name': 'ext-bad', 'auth_mode': 'external', 'external_url': url})
-    assert resp.status_code == 400
+    with as_admin(portal, client, 'TestAuthor'):
+        resp = client.post('/api/register_service', json={
+            'service_name': 'link-bad', 'auth_mode': 'link', 'link_url': url})
+        assert resp.status_code == 400
+        assert 'Only admins' not in resp.json['error']
 
 
 def test_switch_mode_on_edit(portal):
     client = portal.test_client()
-    login(client, 'TestAuthor')
     _register(portal, 'switcher', 'GET', 8080)
-    resp = client.post('/api/update_service', json={
-        'service_name': 'switcher', 'auth_mode': 'external', 'external_url': 'https://example.org'})
+    with as_admin(portal, client, 'TestAuthor'):
+        resp = client.post('/api/update_service', json={
+            'service_name': 'switcher', 'auth_mode': 'link', 'link_url': 'https://example.org'})
     assert resp.status_code == 200, resp.json
     assert b'href="https://example.org"' in client.get('/available_services/switcher').data
     assert client.get('/edit_service/switcher').status_code == 200
@@ -418,7 +497,7 @@ def test_switch_mode_on_edit(portal):
     assert resp.status_code == 400
     from models import Service
     with portal.app_context():
-        assert Service.query.filter_by(name='switcher').first().auth_mode == 'external'
+        assert Service.query.filter_by(name='switcher').first().auth_mode == 'link'
 
 
 # ── Existing databases get the new columns ──
@@ -442,7 +521,7 @@ def test_old_database_is_upgraded(tmp_path):
                    env=env, check=True, capture_output=True)
 
     conn = sqlite3.connect(db_file)
-    row = conn.execute("SELECT auth_mode, external_url FROM services WHERE name='old'").fetchone()
+    row = conn.execute("SELECT auth_mode, link_url FROM services WHERE name='old'").fetchone()
     assert row == ('fabric_token', None)
 
 
@@ -453,10 +532,10 @@ def test_api_key_services_become_token_services(tmp_path):
     conn.execute("""CREATE TABLE services (id INTEGER PRIMARY KEY, name VARCHAR NOT NULL,
         description VARCHAR, owner_id INTEGER NOT NULL, access_project_id VARCHAR,
         access_project_ids_json TEXT, node_ipv6 VARCHAR, node_port INTEGER, nodes_json TEXT,
-        api_key VARCHAR, auth_mode VARCHAR NOT NULL, external_url VARCHAR, icon_color VARCHAR,
+        api_key VARCHAR, auth_mode VARCHAR NOT NULL, link_url VARCHAR, icon_color VARCHAR,
         canvas_json TEXT NOT NULL, status VARCHAR NOT NULL, created_at DATETIME, updated_at DATETIME)""")
     conn.execute("INSERT INTO services (name, owner_id, auth_mode, canvas_json, status) "
-                 "VALUES ('a', 1, 'api_key', '[]', 'active'), ('b', 1, 'external', '[]', 'active')")
+                 "VALUES ('a', 1, 'api_key', '[]', 'active'), ('b', 1, 'link', '[]', 'active')")
     conn.commit()
     conn.close()
 
@@ -467,7 +546,7 @@ def test_api_key_services_become_token_services(tmp_path):
 
     conn = sqlite3.connect(db_file)
     rows = dict(conn.execute("SELECT name, auth_mode FROM services").fetchall())
-    assert rows == {'a': 'fabric_token', 'b': 'external'}
+    assert rows == {'a': 'fabric_token', 'b': 'link'}
 
 
 def test_api_key_mode_cannot_be_registered(portal):
