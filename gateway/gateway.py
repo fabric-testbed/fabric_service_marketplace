@@ -121,12 +121,14 @@ def relay(subpath):
     except http_requests.exceptions.RequestException:
         return jsonify({"error": "Gateway: service node unreachable"}), 502
 
+    # Always JSON: a node's response is never served as HTML or script
     return (
         resp.content,
         resp.status_code,
-        {"Content-Type": resp.headers.get('Content-Type', 'application/json')}
+        {"Content-Type": "application/json", "X-Content-Type-Options": "nosniff"}
     )
 
 
 if __name__ == '__main__':
-    app.run(host='127.0.0.1', port=5001, debug=True)
+    # Local testing only; deployments run Gunicorn. For debug mode use: flask --app gateway --debug run
+    app.run(host='127.0.0.1', port=5001)

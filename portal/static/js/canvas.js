@@ -473,7 +473,7 @@ document.getElementById('register-btn').addEventListener('click', async () => {
         });
         const data = await resp.json();
         if (resp.ok) {
-            window.location.href = isEdit ? '/my_services' : `/register_service/success/${serviceName}`;
+            window.location.href = isEdit ? '/my_services' : `/register_service/success/${encodeURIComponent(serviceName)}`;
         } else {
             errorDiv.textContent = data.error || 'Operation failed.';
             errorDiv.classList.remove('d-none');

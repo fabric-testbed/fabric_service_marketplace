@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from urllib.parse import urlparse
 
-from flask import Blueprint, request, jsonify, session, redirect, render_template, current_app
+from flask import Blueprint, request, jsonify, session, redirect, render_template, current_app, url_for
 
 from access import author_page, author_api
 from models import Service, User, SERVICE_AUTH_MODES, db
@@ -196,7 +196,7 @@ def preview_template():
 def edit_service_page(service_name):
     service = Service.query.filter_by(name=service_name).first_or_404()
     if service.owner_id != session['portal_user']['id']:
-        return redirect(f'/available_services/{service_name}')
+        return redirect(url_for('services.service_page', service_name=service.name))
 
     # Build the service data for pre-filling the form
     if service.access_project_ids_json:

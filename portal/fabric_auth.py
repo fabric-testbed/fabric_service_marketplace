@@ -55,7 +55,8 @@ def fetch_fabric_identity(id_token):
             f"{uis}/whoami", headers=headers, timeout=15
         )
     except http_requests.exceptions.RequestException as e:
-        return None, f"Failed to contact FABRIC UIS: {e}"
+        current_app.logger.warning("FABRIC UIS /whoami failed: %s", e)
+        return None, "Could not reach FABRIC to check the token. Please try again later."
 
     if resp.status_code != 200:
         return None, "Invalid or expired FABRIC token"
@@ -77,7 +78,8 @@ def fetch_fabric_identity(id_token):
             headers=headers, timeout=15
         )
     except http_requests.exceptions.RequestException as e:
-        return None, f"Failed to fetch roles from FABRIC: {e}"
+        current_app.logger.warning("FABRIC UIS /people failed: %s", e)
+        return None, "Could not get your projects from FABRIC. Please try again later."
 
     if resp.status_code != 200:
         return None, "Failed to fetch roles from FABRIC"

@@ -20,7 +20,8 @@ elif os.path.exists(_secret_key_file):
         _secret_key = f.read().strip()
 else:
     _secret_key = secrets.token_hex(32)
-    with open(_secret_key_file, 'w') as f:
+    # Readable by the owner only (root, which runs the portal)
+    with os.fdopen(os.open(_secret_key_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as f:
         f.write(_secret_key)
 
 

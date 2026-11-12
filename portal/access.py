@@ -1,7 +1,7 @@
 """Access checks shared by the portal routes."""
 from functools import wraps
 
-from flask import session, redirect, request, jsonify, render_template, current_app
+from flask import session, redirect, request, jsonify, render_template, current_app, url_for
 
 
 def current_user():
@@ -30,7 +30,7 @@ def author_page(f):
     def decorated(*args, **kwargs):
         user = current_user()
         if not user:
-            return redirect(f'/login?next={request.path}')
+            return redirect(url_for('auth.login_page', next=request.path))
         if not user.get('can_register'):
             return render_template('not_author.html'), 403
         return f(*args, **kwargs)
