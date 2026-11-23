@@ -16,3 +16,4 @@ __pycache__/
 .pytest_cache/
 .DS_Store
 *.tar.gz
+.ipynb_checkpoints/

@@ -102,6 +102,7 @@ def portal(gateway, fabric_uis, tmp_path_factory):
         GATEWAY_TLS_VERIFY='false',
         PORTAL_BEHIND_PROXY='false',
         PORTAL_SECURE_COOKIES='false',
+        PORTAL_HEALTH_CHECK_SECONDS='0',
     )
     sys.path.insert(0, os.path.join(ROOT, 'portal'))
     from app import app
@@ -325,6 +326,86 @@ def test_gateway_down_gives_502(portal, service):
     finally:
         portal.config['GATEWAY_URL'] = original
 
+
+
+# ── Active / Inactive: is the service's app answering GET /health? ──
+
+ACTIVE = b'badge bg-success fs-6'
+INACTIVE = b'badge bg-secondary fs-6'
+
+
+def test_running_service_is_active(portal, service):
+    import health
+    health.forget()
+    page = portal.test_client().get('/available_services/echo-svc').data
+    assert ACTIVE in page and INACTIVE not in page
+    assert b'>Active</span>' in portal.test_client().get('/available_services').data
+
+
+def test_service_is_inactive_until_its_app_runs(portal, fabric_uis):
+    import health
+    name, port = 'not-running-yet', _free_port(socket.AF_INET6, '::1')
+    _register(portal, name, 'GET', port)
+    health.forget()
+    page = portal.test_client().get(f'/available_services/{name}').data
+    assert INACTIVE in page and b'not running right now' in page
+
+    proc = _start_node_app(EXAMPLE_APP, port, FABRIC_UIS_URL=fabric_uis)
+    try:
+        # Before the next check the old result stays; the next check sees it running
+        assert INACTIVE in portal.test_client().get(f'/available_services/{name}').data
+        health.check_all(portal)
+        assert ACTIVE in portal.test_client().get(f'/available_services/{name}').data
+    finally:
+        proc.terminate()
+        proc.wait()
+    health.check_all(portal)
+    assert INACTIVE in portal.test_client().get(f'/available_services/{name}').data
+
+
+def test_gateway_down_means_inactive(portal, service):
+    import health
+    health.forget()
+    original = portal.config['GATEWAY_URL']
+    portal.config['GATEWAY_URL'] = f'http://127.0.0.1:{_free_port()}'
+    try:
+        assert INACTIVE in portal.test_client().get('/available_services/echo-svc').data
+    finally:
+        portal.config['GATEWAY_URL'] = original
+        health.forget()
+
+
+def test_website_links_have_no_status(portal):
+    client = portal.test_client()
+    with as_admin(portal, client, 'TestAuthor'):
+        client.post('/api/register_service', json={
+            'service_name': 'link-no-status', 'auth_mode': 'link', 'link_url': 'https://example.org'})
+    page = client.get('/available_services/link-no-status').data
+    assert ACTIVE not in page and INACTIVE not in page
+
+
+def test_background_check_runs_every_interval(portal, service):
+    """With PORTAL_HEALTH_CHECK_SECONDS set, a background thread refreshes the results."""
+    import health
+    health.forget()
+    portal.config['HEALTH_CHECK_SECONDS'] = 1
+    try:
+        health.start(portal)
+        deadline = time.time() + 10
+        while time.time() < deadline and ('::1', int(service_port(portal))) not in health._results:
+            time.sleep(0.2)
+        assert health._results.get(('::1', int(service_port(portal)))) is True
+    finally:
+        health.stop()
+        portal.config['HEALTH_CHECK_SECONDS'] = 0
+        time.sleep(1.5)  # let the last round finish
+        health.forget()
+
+
+def service_port(portal):
+    from models import Service
+    with portal.app_context():
+        return Service.query.filter_by(name='echo-svc').first().node_port
 
 
 # ── The example app and the generated app work behind the gateway ──

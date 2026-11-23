@@ -21,7 +21,7 @@ def _cfg():
 
 
 def relay(method, node_ipv6, node_port, endpoint, params=None, json_body=None,
-          bearer_token=None, user=None):
+          bearer_token=None, user=None, timeout=None):
     """
     Send one widget request through the gateway. Returns a requests.Response.
     bearer_token is the user's FABRIC token, which the service node checks.
@@ -47,7 +47,7 @@ def relay(method, node_ipv6, node_port, endpoint, params=None, json_body=None,
             headers=headers,
             params=params,
             json=json_body,
-            timeout=c['GATEWAY_TIMEOUT'],
+            timeout=timeout or c['GATEWAY_TIMEOUT'],
             verify=c['GATEWAY_TLS_VERIFY'],
         )
     except http_requests.exceptions.RequestException as e:

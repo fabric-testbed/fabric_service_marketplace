@@ -62,6 +62,10 @@ class Config:
     GATEWAY_TLS_VERIFY = _tls_verify(os.environ.get('GATEWAY_TLS_VERIFY', 'true'))
     GATEWAY_TIMEOUT = float(os.environ.get('GATEWAY_TIMEOUT', '15'))
 
+    # How often to check that each service's app is running (GET /health on its
+    # nodes, through the gateway). 0 = no background check.
+    HEALTH_CHECK_SECONDS = int(os.environ.get('PORTAL_HEALTH_CHECK_SECONDS', '60'))
+
     BEHIND_PROXY = _bool('PORTAL_BEHIND_PROXY', True)
     SESSION_COOKIE_SECURE = _bool('PORTAL_SECURE_COOKIES', True)
     SESSION_COOKIE_HTTPONLY = True

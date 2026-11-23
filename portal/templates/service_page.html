@@ -3,7 +3,15 @@
 {% block content %}
 <div class="row justify-content-center">
     <div class="col-md-8">
-        <h2>{{ service.name }}</h2>
+        <h2>{{ service.name }}
+            {% if active %}<span class="badge bg-success fs-6 align-middle">Active</span>
+            {% elif active is not none %}<span class="badge bg-secondary fs-6 align-middle">Inactive</span>{% endif %}
+        </h2>
+        {% if active is not none and not active %}
+        <div class="alert alert-secondary py-2 small">
+            This service's app is not running right now (checked every minute). Please try again later.
+        </div>
+        {% endif %}
         <p class="text-muted">{{ service.description }}</p>
         <p class="small text-muted">by {{ service.owner.username }}</p>
 

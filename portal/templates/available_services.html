@@ -27,12 +27,10 @@
                 <div class="card-footer bg-transparent d-flex justify-content-between align-items-center">
                     <small class="text-muted">by {{ svc.owner.username }}</small>
                     {% if svc.auth_mode == 'link' %}<span class="badge bg-info text-dark">Website link</span>{% endif %}
-                    {% if svc.status == 'active' %}
+                    {% if active[svc.id] %}
                         <span class="badge bg-success">Active</span>
-                    {% elif svc.status == 'down' %}
-                        <span class="badge bg-danger">Down</span>
-                    {% else %}
-                        <span class="badge bg-secondary">{{ svc.status }}</span>
+                    {% elif active[svc.id] is not none %}
+                        <span class="badge bg-secondary" title="Its app is not answering on any node">Inactive</span>
                     {% endif %}
                 </div>
             </div>

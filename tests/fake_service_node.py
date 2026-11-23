@@ -10,6 +10,11 @@ from flask import Flask, jsonify, request
 app = Flask(__name__)
 
 
+@app.route('/health')
+def health():
+    return jsonify({"status": "ok"})
+
+
 @app.route('/api/echo', methods=['GET', 'POST'])
 def echo():
     return jsonify({

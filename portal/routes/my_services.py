@@ -1,7 +1,9 @@
 import json
 from datetime import datetime
 
-from flask import Blueprint, request, jsonify, session, render_template
+from flask import Blueprint, request, jsonify, session, render_template, current_app
+
+import health
 
 from access import author_page
 from models import Service, db
@@ -15,7 +17,8 @@ def my_services_page():
     services = Service.query.filter_by(
         owner_id=session['portal_user']['id']
     ).order_by(Service.created_at.desc()).all()
-    return render_template('my_services.html', services=services)
+    return render_template('my_services.html', services=services,
+                           active=health.statuses(current_app._get_current_object(), services))
 
 
 @my_services_bp.route('/api/services/<service_name>', methods=['PUT'])

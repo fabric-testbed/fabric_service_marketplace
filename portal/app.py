@@ -65,6 +65,13 @@ def create_app():
         except (TypeError, ValueError):
             return []
 
+    # Check every minute that each service's app is running (see health.py).
+    # Started by the first request, so CLI commands like seed-admin don't start it.
+    @app.before_request
+    def _start_health_checks():
+        import health
+        health.start(app)
+
     # Make session info available to all templates
     @app.context_processor
     def inject_user():

@@ -1,6 +1,8 @@
 import json
 
-from flask import Blueprint, request, session, render_template
+from flask import Blueprint, request, session, render_template, current_app
+
+import health
 
 from access import current_user, can_use_service
 from models import Service
@@ -29,7 +31,8 @@ def _grant_service(service, user_id, name, uuid):
 @services_bp.route('/available_services')
 def available_services():
     services = Service.query.order_by(Service.created_at.desc()).all()
-    return render_template('available_services.html', services=services)
+    return render_template('available_services.html', services=services,
+                           active=health.statuses(current_app._get_current_object(), services))
 
 
 @services_bp.route('/available_services/<service_name>')
@@ -38,7 +41,7 @@ def service_page(service_name):
 
     if service.auth_mode == 'link':
         # Website link: hosted elsewhere with its own login; anyone may follow it
-        return render_template('service_page.html', service=service, is_link=True)
+        return render_template('service_page.html', service=service, is_link=True, active=None)
 
     session_key = f'auth_{service_name}'
     user = current_user()
@@ -66,6 +69,7 @@ def service_page(service_name):
         'service_page.html',
         service=service,
         is_link=False,
+        active=health.statuses(current_app._get_current_object(), [service])[service.id],
         widgets=widgets,
         authenticated=authenticated,
         denied=denied,

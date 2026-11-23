@@ -92,9 +92,11 @@
                             {% endif %}
                         </td>
                         <td>
-                            <span class="badge {{ 'bg-success' if svc.status == 'active' else 'bg-danger' }}">
-                                {{ svc.status }}
-                            </span>
+                            {% if active[svc.id] %}
+                                <span class="badge bg-success">Active</span>
+                            {% elif active[svc.id] is not none %}
+                                <span class="badge bg-secondary">Inactive</span>
+                            {% endif %}
                         </td>
                         <td>{{ svc.created_at.strftime('%Y-%m-%d') if svc.created_at else '' }}</td>
                         <td>

@@ -1,6 +1,8 @@
 from functools import wraps
 
-from flask import Blueprint, request, jsonify, session, redirect, render_template, abort
+from flask import Blueprint, request, jsonify, session, redirect, render_template, abort, current_app
+
+import health
 
 from models import User, Service, UsageLog, AuthLog, db
 
@@ -31,6 +33,7 @@ def admin_dashboard():
         'admin.html',
         users=users,
         services=services,
+        active=health.statuses(current_app._get_current_object(), services),
         recent_auth=recent_auth,
         recent_usage=recent_usage
     )
