@@ -25,5 +25,11 @@ def echo():
     })
 
 
+@app.route('/api/html')
+def html():
+    """A node that returns HTML instead of JSON."""
+    return '<script>alert(1)</script>', 200, {'Content-Type': 'text/html'}
+
+
 if __name__ == '__main__':
     app.run(host='::1', port=int(sys.argv[1]))

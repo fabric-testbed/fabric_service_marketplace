@@ -121,12 +121,16 @@ def relay(subpath):
     except http_requests.exceptions.RequestException:
         return jsonify({"error": "Gateway: service node unreachable"}), 502
 
-    # Always JSON: a node's response is never served as HTML or script
-    return (
-        resp.content,
-        resp.status_code,
-        {"Content-Type": "application/json", "X-Content-Type-Options": "nosniff"}
-    )
+    # Pass on only valid JSON, rebuilt with jsonify, so a node's response can
+    # never be served as HTML or script. The portal's widgets expect JSON anyway.
+    try:
+        body = resp.json() if resp.content else {}
+    except ValueError:
+        return jsonify({"error": "Gateway: service node did not return JSON"}), 502
+    out = jsonify(body)
+    out.status_code = resp.status_code
+    out.headers["X-Content-Type-Options"] = "nosniff"
+    return out
 
 
 if __name__ == '__main__':

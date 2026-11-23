@@ -125,5 +125,5 @@ def widget_proxy(service_name, widget_id):
     return (
         resp.content,
         resp.status_code,
-        {"Content-Type": "application/json"}
+        {"Content-Type": "application/json", "X-Content-Type-Options": "nosniff"}
     )

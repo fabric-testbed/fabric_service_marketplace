@@ -234,6 +234,17 @@ def test_check_gateway_cli(portal):
 
 # ── Gateway guards (called directly, as an attacker would) ──
 
+def test_gateway_passes_on_only_json(gateway, node, service):
+    headers = {'X-Gateway-Secret': SECRET, 'X-Target-Host': '::1', 'X-Target-Port': str(node['port'])}
+    ok = requests.get(f'{gateway}/relay/api/echo', headers=headers)
+    assert ok.status_code == 200 and ok.headers['Content-Type'] == 'application/json'
+    assert ok.headers['X-Content-Type-Options'] == 'nosniff' and ok.json()['method'] == 'GET'
+    # A node that answers with HTML gets an error, never its HTML
+    html = requests.get(f'{gateway}/relay/api/html', headers=headers)
+    assert html.status_code == 502 and b'<script>' not in html.content
+    assert html.json() == {'error': 'Gateway: service node did not return JSON'}
+
+
 def test_gateway_rejects_wrong_secret(gateway, node):
     resp = requests.get(f'{gateway}/relay/api/echo', headers={
         'X-Gateway-Secret': 'wrong', 'X-Target-Host': '::1',
