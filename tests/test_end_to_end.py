@@ -413,11 +413,12 @@ def service_port(portal):
 EXAMPLE_APP = os.path.join(ROOT, 'service_node', 'example_app.py')
 
 
-def _start_node_app(script, port, **extra_env):
+def _start_node_app(script, port, log_file=None, **extra_env):
+    out = open(log_file, 'w') if log_file else subprocess.DEVNULL
     proc = subprocess.Popen(
         [sys.executable, str(script)],
         env=dict(os.environ, SERVICE_PORT=str(port), **extra_env),
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        stdout=out, stderr=out)
     _wait_for(f'http://[::1]:{port}/health')
     return proc
 
@@ -531,6 +532,59 @@ def test_token_check_can_be_turned_off(portal, fabric_uis, tmp_path):
         assert requests.get(f'http://[::1]:{port}/api/service_config').status_code == 200
     finally:
         proc.terminate()
+
+
+def test_whoami_shows_whether_the_token_arrived(fabric_uis):
+    port = _free_port(socket.AF_INET6, '::1')
+    proc = _start_node_app(EXAMPLE_APP, port, FABRIC_UIS_URL=fabric_uis, ALLOWED_PROJECTS=CONSUMER_PROJECT)
+    url = f'http://[::1]:{port}/whoami'
+    try:
+        none = requests.get(url).json()
+        assert none['token_received'] is False and none['user'] is None
+        good = requests.get(url, headers={'Authorization': f'Bearer {make_token(CONSUMER)}'}).json()
+        assert good['token_received'] and good['token_valid'] and good['in_allowed_project']
+        assert good['token_scope'] == 'service' and good['user']['name'] == 'TestConsumer'
+        outsider = requests.get(url, headers={'Authorization': f'Bearer {make_token(OUTSIDER)}'}).json()
+        assert outsider['token_valid'] and not outsider['in_allowed_project']
+        resource = requests.get(url, headers={
+            'Authorization': f'Bearer {make_token(CONSUMER, scope="resource")}'}).json()
+        assert resource['token_scope'] == 'resource'
+        assert make_token(CONSUMER) not in requests.get(
+            url, headers={'Authorization': f'Bearer {make_token(CONSUMER)}'}).text  # never echoed
+    finally:
+        proc.terminate()
+
+
+def test_whoami_widget_through_the_portal(portal, fabric_uis):
+    """A widget with endpoint /whoami on the example app shows that the portal passed the user's token."""
+    name, port = 'whoami-test', _free_port(socket.AF_INET6, '::1')
+    _register(portal, name, 'GET', port, endpoint='/whoami')
+    proc = _start_node_app(EXAMPLE_APP, port, FABRIC_UIS_URL=fabric_uis, ALLOWED_PROJECTS=CONSUMER_PROJECT)
+    try:
+        resp = _call_as_consumer(portal, name, 'GET')
+        assert resp.status_code == 200, resp.data
+        assert resp.json['token_received'] and resp.json['token_valid'] and resp.json['in_allowed_project']
+        assert resp.json['user']['name'] == 'TestConsumer'
+        assert resp.json['portal_headers']['name'] == 'TestConsumer'
+    finally:
+        proc.terminate()
+        proc.wait()
+
+
+def test_example_app_logs_calls_with_the_caller(portal, fabric_uis, tmp_path):
+    name, port = 'logged-calls', _free_port(socket.AF_INET6, '::1')
+    _register(portal, name, 'GET', port)
+    log_file = tmp_path / 'app.log'
+    proc = _start_node_app(EXAMPLE_APP, port, log_file=log_file,
+                           FABRIC_UIS_URL=fabric_uis, ALLOWED_PROJECTS=CONSUMER_PROJECT)
+    try:
+        resp = _call_as_consumer(portal, name, 'GET')
+        assert resp.status_code == 200 and resp.json['requested_by'] == 'TestConsumer'
+    finally:
+        proc.terminate()
+        proc.wait()
+    log = log_file.read_text()
+    assert '/api/service_config requested by TestConsumer' in log and 'verified=True' in log
 
 
 def test_example_app_health_and_token_off(fabric_uis):

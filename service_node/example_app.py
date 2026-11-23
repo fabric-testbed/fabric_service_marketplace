@@ -11,6 +11,10 @@ The file has four parts:
   3. FABRIC token check                 OPTIONAL: turn off with CHECK_FABRIC_TOKEN=false
   4. Your endpoints                     FILL IN: your service's logic
 
+Who is calling? caller() returns the user who made the request; the endpoint in
+part 4 shows how to use it. The test endpoint GET /whoami (part 3) shows whether
+a FABRIC token reached the app and whose it is.
+
 How requests reach the app:
   - Through the portal: the portal logs the user in, checks they are in one of
     the service's allowed projects, and forwards their request through the
@@ -136,6 +140,27 @@ def caller():
             "name": request.headers.get("X-Fabric-User-Name"), "verified": False}
 
 
+@app.route("/whoami")
+def whoami():
+    """Test endpoint: did a FABRIC token reach this app, and whose is it?
+    Answers with or without the token check, and never shows the token itself.
+    Try it through the portal (register a widget with endpoint /whoami) or directly:
+        curl -H "Authorization: Bearer $FABRIC_TOKEN" http://[<node ipv6>]:<port>/whoami"""
+    auth = request.headers.get("Authorization", "")
+    token = auth[len("Bearer "):].strip() if auth.startswith("Bearer ") else ""
+    user = fabric_user(token) if token else None
+    return jsonify({
+        "token_received": bool(token),
+        "token_scope": token_scope(token) if token else None,   # want: "service"
+        "token_valid": bool(user),                              # FABRIC accepted it
+        "user": {"uuid": user["uuid"], "name": user["name"]} if user else None,
+        "in_allowed_project": bool(user and (not ALLOWED_PROJECTS or user["projects"] & ALLOWED_PROJECTS)),
+        "portal_headers": {"uuid": request.headers.get("X-Fabric-User-Uuid"),
+                           "name": request.headers.get("X-Fabric-User-Name")},
+        "token_check": "on" if CHECK_FABRIC_TOKEN else "off",
+    })
+
+
 # ═══ 4. Your endpoints (FILL IN) ═════════════════════════════════════════════
 # One route per portal widget. The path and method must match the widget's
 # endpoint and method on the registration form.
@@ -154,13 +179,21 @@ def service_config():
     else:
         inputs = request.args.to_dict()
 
+    # Who made this request: {"uuid": ..., "name": ..., "verified": True/False}.
+    # verified=True means the token check is on and FABRIC confirmed the user.
+    # Use it however your service needs, e.g. to record who used what.
+    user = caller()
+    print(f"{request.path} requested by {user['name']} ({user['uuid']}) "
+          f"verified={user['verified']} inputs={inputs}", flush=True)
+
     # >>> FILL IN: your service's logic <<<
     # e.g. run a command with subprocess.run([...]) or call another local API.
-    result = f"Hello {caller()['name']}, {platform.node()} received {inputs}"
+    result = f"Hello {user['name']}, {platform.node()} received {inputs}"
 
     return jsonify({
         "node": platform.node(),
-        "caller": caller(),
+        "requested_by": user["name"],   # add an output field "requested_by" on the form to show it
+        "caller": user,
         "inputs": inputs,
         "result": result,
     })
