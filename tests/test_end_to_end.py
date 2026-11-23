@@ -245,6 +245,49 @@ def test_gateway_passes_on_only_json(gateway, node, service):
     assert html.json() == {'error': 'Gateway: service node did not return JSON'}
 
 
+def _start_gateway_gunicorn(port, extra_args):
+    env = dict(os.environ, GATEWAY_ENV_FILE='/nonexistent', GATEWAY_SHARED_SECRET=SECRET,
+               GATEWAY_ALLOWED_SOURCES='127.0.0.1/32', GATEWAY_ALLOWED_TARGETS='::1/128',
+               GATEWAY_BEHIND_PROXY='false')
+    proc = subprocess.Popen(
+        [sys.executable, '-m', 'gunicorn', '-w', '1', '-b', f'127.0.0.1:{port}', *extra_args, 'gateway:app'],
+        cwd=os.path.join(ROOT, 'gateway'), env=env,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    _wait_for(f'http://127.0.0.1:{port}/health')
+    return proc
+
+
+def test_gateway_accepts_long_fabric_tokens(node, service):
+    """Real FABRIC tokens can be over 8 KB; the gateway runs Gunicorn with the
+    options from deploy.sh, which must let such an Authorization header through."""
+    pytest.importorskip('gunicorn')
+    import re
+    import shlex
+    deploy = open(os.path.join(ROOT, 'gateway', 'deploy.sh')).read()
+    args = shlex.split(re.search(r'ExecStart=\S*gunicorn (.*) gateway:app', deploy).group(1))
+    args = [a for i, a in enumerate(args)  # keep everything but workers and bind address
+            if a not in ('-w', '-b') and (i == 0 or args[i - 1] not in ('-w', '-b'))]
+    long_token = 'x' * 9000
+    headers = {'X-Gateway-Secret': SECRET, 'X-Target-Host': '::1', 'X-Target-Port': str(node['port']),
+               'Authorization': f'Bearer {long_token}'}
+    # deploy.sh options vs Gunicorn's defaults (400 or 431 "header too large", by version)
+    for extra, expected in ((args, {200}), ([], {400, 431})):
+        port = _free_port()
+        proc = _start_gateway_gunicorn(port, extra)
+        try:
+            resp = requests.get(f'http://127.0.0.1:{port}/relay/api/echo', headers=headers)
+            assert resp.status_code in expected, (extra, resp.status_code)
+            if expected == {200}:
+                assert resp.json()['authorization'] == f'Bearer {long_token}'
+        finally:
+            proc.terminate()
+
+
+def test_gateway_nginx_allows_long_headers():
+    conf = open(os.path.join(ROOT, 'gateway', 'nginx', 'gateway.conf')).read()
+    assert 'large_client_header_buffers 4 32k;' in conf
+
+
 def test_gateway_rejects_wrong_secret(gateway, node):
     resp = requests.get(f'{gateway}/relay/api/echo', headers={
         'X-Gateway-Secret': 'wrong', 'X-Target-Host': '::1',
