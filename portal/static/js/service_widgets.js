@@ -37,7 +37,22 @@ async function proxyRequest(widgetId, method, body) {
     }
 }
 
+// A string that is a web address (http/https only) is shown as a clickable link
+function asLink(value) {
+    if (typeof value !== 'string') return null;
+    let url;
+    try { url = new URL(value); } catch (e) { return null; }
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+    const a = document.createElement('a');
+    a.href = url.href;
+    a.textContent = url.href;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    return a;
+}
+
 function renderResponse(widgetId, data) {
+    // Everything is inserted as text (never as HTML), so a service can't inject markup
     if (OUTPUT_FIELDS.length > 0) {
         // Distribute values to individual output field containers
         const outputArea = document.getElementById(`output-area-${widgetId}`);
@@ -49,7 +64,11 @@ function renderResponse(widgetId, data) {
             if (!valueEl) return;
 
             const value = data[key];
-            if (value === undefined || value === null) {
+            const link = asLink(value);
+            valueEl.replaceChildren();
+            if (link) {
+                valueEl.appendChild(link);
+            } else if (value === undefined || value === null) {
                 valueEl.textContent = '—';
             } else if (typeof value === 'object') {
                 valueEl.textContent = JSON.stringify(value, null, 2);
@@ -58,12 +77,22 @@ function renderResponse(widgetId, data) {
             }
         });
     } else {
-        // Fallback: raw JSON
+        // Fallback: raw JSON, plus any web addresses at the top level as links
         const container = document.getElementById(`response-${widgetId}`);
         if (!container) return;
-        container.innerHTML = `<pre class="bg-light p-2 rounded small mb-0">${
-            JSON.stringify(data, null, 2)
-        }</pre>`;
+        const pre = document.createElement('pre');
+        pre.className = 'bg-light p-2 rounded small mb-0';
+        pre.textContent = JSON.stringify(data, null, 2);
+        container.replaceChildren(pre);
+        for (const value of Object.values(data || {})) {
+            const link = asLink(value);
+            if (link) {
+                const p = document.createElement('p');
+                p.className = 'mt-2 mb-0';
+                p.appendChild(link);
+                container.appendChild(p);
+            }
+        }
     }
 }
 
