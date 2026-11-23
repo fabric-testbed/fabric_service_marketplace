@@ -159,7 +159,7 @@ def _build_return(output_fields):
             lines.append(f'        "{of_["key"]}": "TODO",  # >>> FILL IN <<<  {of_.get("label", "")}')
     else:
         lines.append('        "status": "ok",')
-        lines.append('        "caller": caller(),')
+        lines.append('        "caller": user,')
     lines.append('    })')
     return '\n'.join(lines)
 
@@ -177,9 +177,16 @@ def _route_body(method, input_fields, output_fields):
                 lines.append(f'    {fname} = request.args.get("{fname}")')
         lines.append('')
 
+    lines.append('    # Who made this request: {"uuid": ..., "name": ..., "verified": True/False}.')
+    lines.append('    # verified=True: the token check is on and FABRIC confirmed the user.')
+    lines.append('    # To keep your own records (e.g. a usage table in your database), use')
+    lines.append('    # user["uuid"] as the key: it never changes, while names can.')
+    lines.append('    user = caller()')
+    lines.append('    print(f"{request.path} requested by {user[\'name\']} ({user[\'uuid\']}) "')
+    lines.append('          f"verified={user[\'verified\']}", flush=True)')
+    lines.append('')
     lines.append("    # >>> FILL IN: your service's logic <<<")
     lines.append('    # e.g. run a command with subprocess.run([...]) or call another local API.')
-    lines.append('    # caller() tells you which FABRIC user made the request.')
     lines.append('')
     lines.append(_build_return(output_fields))
     return '\n'.join(lines)

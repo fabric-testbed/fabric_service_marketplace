@@ -181,7 +181,18 @@ def service_config():
 
     # Who made this request: {"uuid": ..., "name": ..., "verified": True/False}.
     # verified=True means the token check is on and FABRIC confirmed the user.
-    # Use it however your service needs, e.g. to record who used what.
+    # To keep your own records, use user["uuid"] as the key: it never changes,
+    # while names can. For example, with SQLite:
+    #
+    #   import sqlite3
+    #   with sqlite3.connect("usage.db") as db:
+    #       db.execute("CREATE TABLE IF NOT EXISTS usage (uuid TEXT, name TEXT, "
+    #                  "endpoint TEXT, inputs TEXT, at TEXT DEFAULT CURRENT_TIMESTAMP)")
+    #       db.execute("INSERT INTO usage (uuid, name, endpoint, inputs) VALUES (?, ?, ?, ?)",
+    #                  (user["uuid"], user["name"], request.path, json.dumps(inputs)))
+    #
+    # With the token check off, verified is False and the uuid/name come from the
+    # portal's headers, which a direct caller could fake: don't rely on them then.
     user = caller()
     print(f"{request.path} requested by {user['name']} ({user['uuid']}) "
           f"verified={user['verified']} inputs={inputs}", flush=True)

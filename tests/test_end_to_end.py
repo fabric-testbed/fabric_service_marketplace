@@ -497,7 +497,8 @@ def test_token_generated_template_behind_gateway(portal, fabric_uis, tmp_path, m
     assert CONSUMER_PROJECT in template  # allowed projects are baked in
     script = tmp_path / 'app.py'
     script.write_text(template)
-    proc = _start_node_app(script, port, FABRIC_UIS_URL=fabric_uis)
+    log_file = tmp_path / 'app.log'
+    proc = _start_node_app(script, port, log_file=log_file, FABRIC_UIS_URL=fabric_uis)
     try:
         resp = _call_as_consumer(portal, name, method)
         assert resp.status_code == 200, resp.data
@@ -508,12 +509,16 @@ def test_token_generated_template_behind_gateway(portal, fabric_uis, tmp_path, m
         assert requests.get(f'http://[::1]:{port}/health').json() == {'status': 'ok'}
     finally:
         proc.terminate()
+        proc.wait()
+    # The app printed who made the request
+    assert '/api/service_config requested by TestConsumer' in log_file.read_text()
 
 
 def test_generated_template_marks_optional_and_fill_in_parts(portal):
     template = _register(portal, 'template-parts', 'GET', 8080)
     for text in ('2. Health check (GET /health)', '3. FABRIC token check', 'OPTIONAL',
-                 'CHECK_FABRIC_TOKEN = True', '>>> FILL IN', 'target = request.args.get("target")'):
+                 'CHECK_FABRIC_TOKEN = True', '>>> FILL IN', 'target = request.args.get("target")',
+                 'user = caller()', 'user["uuid"] as the key'):
         assert text in template, text
 
 
