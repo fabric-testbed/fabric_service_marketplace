@@ -118,7 +118,7 @@ After=network.target
 User=root
 WorkingDirectory=$APP_DIR
 Environment="PATH=$VENV_DIR/bin"
-ExecStart=$VENV_DIR/bin/gunicorn -w 4 -b 127.0.0.1:5000 app:app
+ExecStart=$VENV_DIR/bin/gunicorn -w 4 --threads 8 -b 127.0.0.1:5000 app:app
 Restart=always
 
 [Install]
