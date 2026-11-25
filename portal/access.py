@@ -46,6 +46,17 @@ def author_page(f):
             return redirect(url_for('auth.login_page', next=request.path))
         if not user.get('can_register'):
             return render_template('not_author.html'), 403
+        # A session from before project ownership was recorded: read the user's
+        # projects again (no new login needed while the FABRIC cookie is valid)
+        # Tried once only: the old entries are first marked "not an owner", so if
+        # reading the projects fails the user is not sent round again.
+        stale = [p for p in user.get('service_projects', []) if 'owner' not in p]
+        if stale:
+            for p in stale:
+                p['owner'] = False
+            session.modified = True
+            if user.get('signed_in_with') == 'fabric':
+                return redirect(url_for('auth.fabric_login_start', next=request.path))
         return f(*args, **kwargs)
     return decorated
 

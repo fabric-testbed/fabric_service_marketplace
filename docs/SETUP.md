@@ -2,9 +2,9 @@
 
 Three kinds of machine are involved. Set them up in this order:
 
-1. **Gateway**: a FABRIC VM with FABNetv4Ext (public IPv4) and FABnetv6
+1. **Gateway**: a FABRIC VM with FABNetv4Ext (public IPv4), FABnetv6 and FABNetv4
 2. **Portal**: a VM with a public IP (here also a FABRIC VM with FABNetv4Ext)
-3. **Service nodes**: each service author's own slice VMs, with FABnetv6
+3. **Service nodes**: each service author's own slice VMs, with FABnetv6 or FABNetv4
 
 | Machine | Supported OS |
 |---|---|
@@ -23,7 +23,7 @@ the portal VM, and `notebook` in your FABRIC JupyterHub notebook.
 
 | VM | Image | Network services |
 |---|---|---|
-| gateway | Ubuntu | FABNetv4Ext (public IPv4), FABnetv6 |
+| gateway | Ubuntu | FABNetv4Ext (public IPv4), FABnetv6, FABNetv4 |
 | portal | Ubuntu or Rocky | FABNetv4Ext (public IPv4) |
 
 Make each FABNetv4Ext address publicly routable (`make_ip_publicly_routable`,
@@ -56,7 +56,26 @@ sudo ip route replace <gateway public IP>/32 via $GW dev $IFACE src $PUBLIC_IP
 ```
 
 On the **gateway** only, route FABnetv6 through its FABnetv6 interface
-(notebook: `node.ip_route_add(subnet=fablib.FABNETV6_SUBNET, gateway=<fabnetv6 gw>)`).
+(notebook: `node.ip_route_add(subnet=fablib.FABNETV6_SUBNET, gateway=<fabnetv6 gw>)`),
+and FABNetv4 through its FABNetv4 interface:
+
+```bash
+V4IF=<FABNetv4 interface>  V4IP=<this VM's FABNetv4 address>/<prefix>  V4GW=<FABNetv4 gateway>
+sudo ip link set dev $V4IF up
+sudo ip addr replace $V4IP dev $V4IF
+sudo ip route replace 10.128.0.0/10 via $V4GW dev $V4IF
+```
+
+The gateway needs its own FABNetv4 interface for this: FABNetv4 nodes do not
+answer its public FABNetv4Ext address. Leave FABNetv4 out (and out of
+`PORTAL_SERVICE_NODE_NETWORK` and `GATEWAY_ALLOWED_TARGETS`) if no service will
+use it. To add FABNetv4 to a gateway slice that is already running, add the
+network card first (`node.add_component(model='NIC_Basic', ...)`,
+`slice.submit()`), then the network on that card in a second
+`slice.submit()`; asking for both at once has failed.
+
+To keep these addresses and routes across a reboot, put them in a netplan file
+on the VM (`/etc/netplan/*.yaml`, checked with `sudo netplan generate`).
 
 Check on the portal:
 
@@ -206,10 +225,13 @@ Check with `curl -sI https://uis.fabric-testbed.net | head -1` on the portal.
 
 ### App on my FABRIC nodes
 
-The author fills in the registration form (allowed FABRIC service projects, nodes, and the
-widget: its endpoint, method, input and output fields). The portal then shows a
-Flask app built from that form. On each VM in the author's slice, with FABnetv6
-attached:
+The author fills in the registration form: the service's name (free text; the
+address of its page, e.g. `fabric-llm-service`, is filled in from it and cannot
+be changed later), its service project (picked by name from the service
+projects the author owns), its nodes, and the widget (endpoint, method, input
+and output fields). Problems are shown on the field they belong to. The portal
+then shows a Flask app built from that form. On each VM in the author's slice,
+with FABnetv6 or FABNetv4 attached:
 
 ```bash
 sudo apt update && sudo apt install -y python3 python3-venv
@@ -218,9 +240,13 @@ pip install flask requests
 python app.py         # the code shown after registering
 ```
 
-- The app listens on `::` so the gateway can reach it over FABnetv6; open its
+- The app listens on `::` (IPv6 and IPv4) so the gateway can reach it; open its
   port (e.g. 8080) in the VM's firewall.
-- Register the node's **FABnetv6** address in the portal.
+- Register the node's **FABnetv6** address (`2602:fcfb:…`) or **FABNetv4**
+  address (`10.128.…`) in the portal.
+- The gateway calls nodes with plain HTTP. An app that only answers HTTPS, or
+  that wants its own API key instead of a FABRIC token, cannot be a node
+  service: register it as a website link (below).
 
 The generated app (and the reference `service_node/example_app.py`) has four
 parts:
@@ -233,8 +259,8 @@ parts:
 | 4. Your endpoints | **fill in** | One route per widget; fill in the lines marked `>>> FILL IN <<<` |
 
 **Should the token check stay on?** The portal already logs users in and checks
-the service's allowed projects before forwarding a request. But the node's
-FABnetv6 address can be reached from any FABRIC slice, and direct callers skip
+the service's project before forwarding a request. But the node's
+FABnet address can be reached from any FABRIC slice, and direct callers skip
 the portal.
 
 - **On (default):** only FABRIC users in the allowed projects can call the
@@ -242,7 +268,7 @@ the portal.
   (`curl -H "Authorization: Bearer $FABRIC_TOKEN" "http://[<node ipv6>]:8080/..."`),
   and `caller()` tells the app reliably who each caller is, e.g. to record who
   used what.
-- **Off** (`CHECK_FABRIC_TOKEN = False`): anyone on FABnetv6 can call the app.
+- **Off** (`CHECK_FABRIC_TOKEN = False`): anyone on FABnet can call the app.
   `caller()` then reads the `X-Fabric-User-Uuid/Name` headers the portal adds:
   fine for display, but a direct caller can fake them. Use this only if that
   is acceptable for the service.
@@ -266,13 +292,22 @@ endpoint.
 The service should explain its own use, e.g. on a page of its own or in the
 author's docs.
 
-### Website link (admins only)
+### Website link (approved by an admin)
 
-For a service that already has its own public address and login (e.g. one run
-by the FABRIC team). Only admins see this option on the registration form (make
-someone admin with `seed-admin` or on the Admin page). Enter the service's URL.
-The portal lists it and links to it; the website handles its own login.
-Nothing to install.
+For a service that already has its own public address and its own login or
+tokens. On the registration form choose **Website link**, pick the service
+project it belongs to (one you own) and enter its web address. Nothing to install.
+
+The request is saved as *Waiting for approval*: it is not listed, and only its
+owner and the admins can open its page. An admin opens the web address, then
+clicks **Approve** or **Reject** under "Website links waiting for approval" on
+the Admin page (make someone admin with `seed-admin` or on the Admin page).
+Once approved, members of the service project get the link; everyone else sees
+the service with "Request access". Changing the web address later sends it back
+for approval; other edits do not.
+
+A link added by an admin is approved in the same way, explicitly, on the Admin
+page (an admin may approve their own), and needs a service project like any other.
 
 ---
 
@@ -286,8 +321,8 @@ nodes. The button stays disabled until the steps below are done; until then
 log in on `/token_test`.
 
 ```
-Browser ─► /auth/fabric/start ─► /vouch/login ─► CILogon ─► /auth (vouch sets the cookie)
-        ─► /auth/fabric/callback ─► logged in
+Browser ─► /auth/fabric/start ─► /vouch/login ─► CILogon ─► /auth ─► /auth/<state>/
+        (vouch sets the cookie) ─► /auth/fabric/callback ─► logged in
 ```
 
 ### What you need
@@ -321,7 +356,8 @@ portal$ docker logs portal-vouch-proxy | tail -5
 `docker compose restart vouch-proxy` in `portal/` instead.)
 
 It listens on `127.0.0.1:9090` only. The portal's Nginx forwards `/auth`,
-`/vouch/login` and `/vouch/logout` to it; `deploy.sh` installs that Nginx
+`/auth/<state>/` (where vouch finishes the login), `/vouch/login` and
+`/vouch/logout` to it; `deploy.sh` installs that Nginx
 config, so run `sudo bash deploy.sh` once if the portal was deployed with an
 older version.
 
@@ -354,15 +390,21 @@ then `sudo bash restart.sh`.
 | `502` on `/vouch/login` | vouch-proxy is not running (`docker ps`) |
 | vouch shows an error instead of going to CILogon | the portal's hostname is outside `vouch.cookie.domain`, or the CILogon callback URL is not `https://<portal>/auth` |
 | Widget: "FABRIC did not issue a service token for this project" | the Credential Manager refused; see `sudo journalctl -u fabric-portal -n 50` |
+| After CILogon: "Not Found" at `/auth/<long code>/?code=...` | Nginx does not forward `/auth/<state>/` to vouch-proxy: use the current `portal/nginx/default.conf` (Docker) or `portal.conf`, and reload Nginx |
 | Widget: "Your FABRIC sign-in has expired" | the login cookie ran out (vouch `maxAge`); log out and sign in again |
 
 ### Who can use what
 
 - Only FABRIC **service projects** give access to services, because FABRIC
-  issues service tokens for those only. A service's allowed projects must be
-  service projects.
+  issues service tokens for those only. Every service belongs to exactly one
+  service project.
+- Only an **owner, lead or creator** of a service project can register a
+  service under it (they must also be a member of `PORTAL_PROJECT_ID`, or an
+  admin). Ownership is read from FABRIC at sign-in, so someone newly made an
+  owner logs out and signs in again.
+- A **website link** is listed only after an admin approves it.
 - Every service is listed. The ones a user cannot use yet are greyed out with
-  **Request access**; the service's page links to its allowed projects on the
+  **Request access**; the service's page links to its project on the
   FABRIC portal (`FABRIC_PORTAL_URL`), where the user asks to join. After being
   added they log out and sign in again.
 - Logging out of the portal also ends the FABRIC sign-in (clears the login

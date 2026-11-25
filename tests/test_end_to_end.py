@@ -380,7 +380,7 @@ def test_website_links_have_no_status(portal):
     client = portal.test_client()
     with as_admin(portal, client, 'TestAuthor'):
         client.post('/api/register_service', json={
-            'service_name': 'link-no-status', 'auth_mode': 'link', 'link_url': 'https://example.org'})
+            'service_name': 'link-no-status', 'auth_mode': 'link', 'access_project_ids': [CONSUMER_PROJECT], 'link_url': 'https://example.org'})
     page = client.get('/available_services/link-no-status').data
     assert ACTIVE not in page and INACTIVE not in page
 
@@ -604,7 +604,7 @@ def test_example_app_health_and_token_off(fabric_uis):
         proc.terminate()
 
 
-# ── Website link (admins only) ──
+# ── Website link (asked for by a project owner and approved by an admin, or added by an admin) ──
 
 @contextlib.contextmanager
 def as_admin(portal, client, user_name):
@@ -623,22 +623,83 @@ def as_admin(portal, client, user_name):
             db.session.commit()
 
 
-def test_link_needs_admin(portal):
-    client = portal.test_client()
-    login(client, 'TestAuthor')
-    resp = client.post('/api/register_service', json={
-        'service_name': 'link-not-admin', 'auth_mode': 'link', 'link_url': 'https://example.org'})
+def approve_link(admin_client, name, url):
+    """As an admin: approve a website link, as on the Admin page."""
+    resp = admin_client.post(f'/admin/services/{name}/review', json={'decision': 'approve', 'link_url': url})
+    assert resp.status_code == 200, resp.json
+
+
+def test_owner_asks_for_a_link_and_an_admin_approves_it(portal, service):
+    owner = portal.test_client()
+    login(owner, 'TestAuthor')
+    link = {'service_name': 'asked-link', 'title': 'Asked Link', 'auth_mode': 'link',
+            'link_url': 'https://example.org/asked', 'access_project_ids': [CONSUMER_PROJECT]}
+
+    # Needs a service project the author owns
+    resp = owner.post('/api/register_service', json=dict(link, access_project_ids=[]))
     assert resp.status_code == 400
-    assert 'Only admins' in resp.json['error']
-    # Switching an existing service to a link is refused too
-    _register(portal, 'stays-node-app', 'GET', 8080)
-    resp = client.post('/api/update_service', json={
-        'service_name': 'stays-node-app', 'auth_mode': 'link', 'link_url': 'https://example.org'})
-    assert resp.status_code == 400
-    # Non-admins don't see the choice on the form; admins do
-    assert b'card mb-3 d-none' in client.get('/register_service').data
-    with as_admin(portal, client, 'TestAuthor'):
-        assert b'card mb-3 d-none' not in client.get('/register_service').data
+    member = portal.test_client()
+    login(member, 'TestMemberAuthor')
+    assert member.post('/api/register_service', json=link).status_code == 400
+
+    # The request is saved, waiting for approval
+    resp = owner.post('/api/register_service', json=link)
+    assert resp.status_code == 201 and resp.json['status'] == 'pending', resp.json
+    assert b'Request sent for approval' in owner.get('/register_service/success/asked-link').data
+    assert b'Waiting for approval' in owner.get('/my_services').data
+
+    # Not listed, and its page is hidden from everyone but the owner and admins
+    consumer = portal.test_client()
+    login(consumer, 'TestConsumer')
+    for client in (consumer, portal.test_client()):
+        assert b'asked-link' not in client.get('/available_services').data
+        assert client.get('/available_services/asked-link').status_code == 404
+    assert owner.get('/available_services/asked-link').status_code == 200
+
+    # Only admins can decide
+    assert owner.post('/admin/services/asked-link/review', json={'decision': 'approve', 'link_url': 'https://example.org/asked'}).status_code == 403
+    admin = portal.test_client()
+    with as_admin(portal, admin, 'TestOutsider'):
+        page = admin.get('/admin').get_data(as_text=True)
+        assert 'Website links waiting for approval' in page and 'https://example.org/asked' in page
+        assert admin.get('/available_services/asked-link').status_code == 200
+        assert admin.post('/admin/services/asked-link/review', json={'decision': 'maybe'}).status_code == 400
+        # Approval is for the address the admin was shown: not for one changed since, or none
+        for seen in ({}, {'link_url': 'https://example.org/something-else'}):
+            resp = admin.post('/admin/services/asked-link/review', json=dict(seen, decision='approve'))
+            assert resp.status_code == 409, resp.json
+        resp = admin.post('/admin/services/asked-link/review',
+                          json={'decision': 'approve', 'link_url': 'https://example.org/asked'})
+        assert resp.json == {'ok': True, 'status': 'active'}
+        # Node services are not reviewed
+        assert admin.post('/admin/services/echo-svc/review', json={'decision': 'reject'}).status_code == 400
+        # No longer among the links waiting (other tests may have left theirs there)
+        assert 'data-name="asked-link" data-url' not in admin.get('/admin').get_data(as_text=True)
+
+    # Approved: members of the project get the link, others are shown how to ask
+    assert b'href="https://example.org/asked"' in consumer.get('/available_services/asked-link').data
+    outsider = portal.test_client()
+    login(outsider, 'TestOutsider')
+    page = outsider.get('/available_services/asked-link')
+    assert page.status_code == 200 and b'href="https://example.org/asked"' not in page.data
+    assert b'Request access' in page.data
+    assert b'Request access' in outsider.get('/available_services').data
+
+    # Editing the description keeps it approved; a new web address needs approval again
+    resp = owner.post('/api/update_service', json=dict(link, description='new words'))
+    assert resp.json['status'] == 'active'
+    resp = owner.post('/api/update_service', json=dict(link, link_url='https://example.org/other'))
+    assert resp.json['status'] == 'pending'
+    assert consumer.get('/available_services/asked-link').status_code == 404
+
+    # Rejected: stays hidden, and the owner is told
+    with as_admin(portal, admin, 'TestOutsider'):
+        assert admin.post('/admin/services/asked-link/review', json={'decision': 'reject'}).json['status'] == 'rejected'
+    assert consumer.get('/available_services/asked-link').status_code == 404
+    assert b'Rejected' in owner.get('/my_services').data
+
+    # Everyone who may register sees the choice on the form
+    assert b'id="mode-link"' in owner.get('/register_service').data
 
 
 def test_link_service(portal):
@@ -649,20 +710,28 @@ def test_link_service(portal):
 
 def _check_link_service(portal, client):
     resp = client.post('/api/register_service', json={
-        'service_name': 'link-svc', 'auth_mode': 'link',
+        'service_name': 'link-svc', 'auth_mode': 'link', 'access_project_ids': [CONSUMER_PROJECT],
         'link_url': 'https://example.org/my-service', 'description': 'hosted elsewhere'})
     assert resp.status_code == 201, resp.json
     assert resp.json['flask_template'] is None
+    assert resp.json['status'] == 'pending'  # approval is explicit, for admins too
+    approve_link(client, 'link-svc', 'https://example.org/my-service')
 
+    # A link without a service project is refused, for admins too
+    resp = client.post('/api/register_service', json={
+        'service_name': 'link-no-project', 'auth_mode': 'link', 'link_url': 'https://example.org/x'})
+    assert resp.status_code == 400
+
+    # Listed for everyone; the link itself is for members of its service project
     anonymous = portal.test_client()
     page = anonymous.get('/available_services/link-svc')
     assert page.status_code == 200
-    assert b'href="https://example.org/my-service"' in page.data
+    assert b'href="https://example.org/my-service"' not in page.data
     assert b'Website link' in anonymous.get('/available_services').data
 
     # Never proxied, even for a logged-in project member
     login(anonymous, 'TestConsumer')
-    anonymous.get('/available_services/link-svc')
+    assert b'href="https://example.org/my-service"' in anonymous.get('/available_services/link-svc').data
     assert anonymous.get('/available_services/link-svc/proxy/w1').status_code in (400, 401)
     assert b'Nothing to install' in client.get('/register_service/success/link-svc').data
 
@@ -672,7 +741,7 @@ def test_link_rejects_bad_urls(portal, url):
     client = portal.test_client()
     with as_admin(portal, client, 'TestAuthor'):
         resp = client.post('/api/register_service', json={
-            'service_name': 'link-bad', 'auth_mode': 'link', 'link_url': url})
+            'service_name': 'link-bad', 'auth_mode': 'link', 'access_project_ids': [CONSUMER_PROJECT], 'link_url': url})
         assert resp.status_code == 400
         assert 'Only admins' not in resp.json['error']
 
@@ -682,7 +751,7 @@ def test_switch_mode_on_edit(portal):
     _register(portal, 'switcher', 'GET', 8080)
     with as_admin(portal, client, 'TestAuthor'):
         resp = client.post('/api/update_service', json={
-            'service_name': 'switcher', 'auth_mode': 'link', 'link_url': 'https://example.org'})
+            'service_name': 'switcher', 'auth_mode': 'link', 'access_project_ids': [CONSUMER_PROJECT], 'link_url': 'https://example.org'})
     assert resp.status_code == 200, resp.json
     assert b'href="https://example.org"' in client.get('/available_services/switcher').data
     assert client.get('/edit_service/switcher').status_code == 200
@@ -942,7 +1011,7 @@ def test_sign_in_with_fabric_cookie(portal, fabric_uis):
     assert user['can_register'] is True
     assert set(user['project_ids']) == {PORTAL_PROJECT, CONSUMER_PROJECT}
     # Only the service project counts for using services; the portal project is not one
-    assert user['service_projects'] == [{'uuid': CONSUMER_PROJECT, 'name': 'Service - Echo'}]
+    assert user['service_projects'] == [{'uuid': CONSUMER_PROJECT, 'name': 'Service - Echo', 'owner': True}]
 
     # Already signed in with FABRIC elsewhere: the Sign in button logs straight in
     client.post('/auth/logout')
@@ -1015,16 +1084,29 @@ def test_user_sees_all_their_service_projects(portal, fabric_uis):
     assert b'Service - Retired' not in page and b'Some Research' not in page
 
 
+def _set_service_project(portal, name, project):
+    """Put a service under a project its author is not a member of (the form only
+    offers the author's own service projects), as if it had been registered by a member."""
+    import json as _json
+    from models import Service, db
+    with portal.app_context():
+        svc = Service.query.filter_by(name=name).first()
+        svc.access_project_id = project
+        svc.access_project_ids_json = _json.dumps([project])
+        db.session.commit()
+
+
 def test_service_list_greys_out_services_the_user_cannot_use(portal, service):
     client = portal.test_client()
     # A service open to a research project, and one open to another service project
     login(client, 'TestAuthor')
     for name, project in (('research-only', RESEARCH_PROJECT), ('second-only', SECOND_SERVICE_PROJECT)):
         resp = client.post('/api/register_service', json={
-            'service_name': name, 'access_project_ids': [project],
+            'service_name': name, 'access_project_ids': [CONSUMER_PROJECT],
             'nodes': [{'name': 'n', 'ipv6': '::1', 'port': 8080}],
             'widgets': [{'id': 'w1', 'type': 'button', 'label': 'x', 'endpoint': '/api/x', 'method': 'GET'}]})
         assert resp.status_code == 201, resp.json
+        _set_service_project(portal, name, project)
 
     import re
 
@@ -1067,11 +1149,14 @@ def test_service_list_greys_out_services_the_user_cannot_use(portal, service):
     assert b'Log in to use' in anonymous and b'Request access' not in anonymous
 
 
-def test_website_links_are_listed_for_everyone(portal):
+def test_approved_website_links_are_listed_for_everyone(portal):
     client = portal.test_client()
     with as_admin(portal, client, 'TestAuthor'):
         client.post('/api/register_service', json={
-            'service_name': 'link-for-all', 'auth_mode': 'link', 'link_url': 'https://example.org'})
+            'service_name': 'link-for-all', 'auth_mode': 'link', 'access_project_ids': [CONSUMER_PROJECT], 'link_url': 'https://example.org'})
+        # An admin's own link waits for approval too
+        assert b'link-for-all' not in portal.test_client().get('/available_services').data
+        approve_link(client, 'link-for-all', 'https://example.org')
     assert b'href="/available_services/link-for-all"' in portal.test_client().get('/available_services').data
 
 
@@ -1101,9 +1186,10 @@ def test_node_gets_a_service_token_for_the_service_project(portal, service):
     login_as_author = portal.test_client()
     login(login_as_author, 'TestAuthor')
     login_as_author.post('/api/register_service', json={
-        'service_name': 'second-project-svc', 'access_project_ids': [SECOND_SERVICE_PROJECT],
+        'service_name': 'second-project-svc', 'access_project_ids': [CONSUMER_PROJECT],
         'nodes': [{'name': 'n', 'ipv6': '::1', 'port': _free_port(socket.AF_INET6, '::1')}],
         'widgets': [{'id': 'w1', 'type': 'button', 'label': 'x', 'endpoint': '/api/x', 'method': 'GET'}]})
+    _set_service_project(portal, 'second-project-svc', SECOND_SERVICE_PROJECT)
     client.get('/available_services/second-project-svc')
     client.get('/available_services/second-project-svc/proxy/w1')
     assert ISSUED[1:] == [(TWO_PROJECTS, SECOND_SERVICE_PROJECT,
@@ -1150,7 +1236,7 @@ def test_logout_also_ends_the_fabric_sign_in(portal, fabric_uis):
 
 def test_token_test_page_shows_service_projects(portal, fabric_uis):
     info = portal.test_client().post('/api/token_test', json={'id_token': make_token(AUTHOR)}).json
-    assert info['service_projects'] == [{'uuid': CONSUMER_PROJECT, 'name': 'Service - Echo'}]
+    assert info['service_projects'] == [{'uuid': CONSUMER_PROJECT, 'name': 'Service - Echo', 'owner': True}]
 
 
 def test_old_session_without_service_projects_is_denied(portal, service):
@@ -1164,3 +1250,161 @@ def test_old_session_without_service_projects_is_denied(portal, service):
         s.pop('auth_echo-svc', None)
     assert client.get('/available_services').status_code == 200
     assert b'Echo GET' not in client.get('/available_services/echo-svc').data
+
+
+def test_a_service_has_one_project_which_must_be_the_authors_own(portal, service):
+    client = portal.test_client()
+    login(client, 'TestAuthor')
+
+    def register(name, projects):
+        return client.post('/api/register_service', json={
+            'service_name': name, 'access_project_ids': projects,
+            'nodes': [{'name': 'n', 'ipv6': '::1', 'port': 8080}],
+            'widgets': [{'id': 'w1', 'type': 'button', 'label': 'x', 'endpoint': '/api/x', 'method': 'GET'}]})
+
+    # Not a member of that service project
+    assert register('not-mine', [SECOND_SERVICE_PROJECT]).status_code == 400
+    # A project of theirs that is not a service project
+    assert register('not-service', [PORTAL_PROJECT]).status_code == 400
+    # More than one, or none
+    assert register('two-projects', [CONSUMER_PROJECT, SECOND_SERVICE_PROJECT]).status_code == 400
+    assert register('no-project', []).status_code == 400
+    assert register('one-own-project', [CONSUMER_PROJECT]).status_code == 201
+
+    # The form offers the service projects the author owns, by name
+    page = client.get('/register_service').get_data(as_text=True)
+    assert 'id="svc-project"' in page and 'Service - Echo' in page
+
+    # A member who is not an owner of the project cannot register under it,
+    # and the form does not offer it
+    member = portal.test_client()
+    login(member, 'TestMemberAuthor')
+    resp = member.post('/api/register_service', json={
+        'service_name': 'member-not-owner', 'access_project_ids': [CONSUMER_PROJECT],
+        'nodes': [{'name': 'n', 'ipv6': '::1', 'port': 8080}],
+        'widgets': [{'id': 'w1', 'type': 'button', 'label': 'x', 'endpoint': '/api/x', 'method': 'GET'}]})
+    assert resp.status_code == 400 and 'own' in resp.json['error']
+    assert 'Service - Echo' not in member.get('/register_service').get_data(as_text=True)
+
+
+def test_editing_an_older_service_keeps_its_other_projects(portal, service):
+    import json as _json
+    from models import Service, db
+    client = portal.test_client()
+    login(client, 'TestAuthor')
+    body = {'service_name': 'older-svc', 'access_project_ids': [CONSUMER_PROJECT], 'description': 'a',
+            'nodes': [{'name': 'n', 'ipv6': '::1', 'port': 8080}],
+            'widgets': [{'id': 'w1', 'type': 'button', 'label': 'x', 'endpoint': '/api/x', 'method': 'GET'}]}
+    assert client.post('/api/register_service', json=body).status_code == 201
+    # As registered before the one-project rule: two projects
+    with portal.app_context():
+        svc = Service.query.filter_by(name='older-svc').first()
+        svc.access_project_ids_json = _json.dumps([CONSUMER_PROJECT, SECOND_SERVICE_PROJECT])
+        db.session.commit()
+
+    # Editing the description, project left as it is: both projects stay
+    resp = client.post('/api/update_service', json=dict(body, description='b'))
+    assert resp.status_code == 200, resp.json
+    with portal.app_context():
+        svc = Service.query.filter_by(name='older-svc').first()
+        assert svc.description == 'b'
+        assert _json.loads(svc.access_project_ids_json) == [CONSUMER_PROJECT, SECOND_SERVICE_PROJECT]
+
+
+def test_old_session_reads_projects_again_once_only(portal, service):
+    """A session from before ownership was recorded is sent to read the projects
+    again, once: if that fails, the next visit shows the form, not another redirect."""
+    client = portal.test_client()
+    login(client, 'TestAuthor')
+    with client.session_transaction() as sess:
+        user = sess['portal_user']
+        user['signed_in_with'] = 'fabric'
+        for p in user['service_projects']:
+            del p['owner']
+        sess['portal_user'] = user
+
+    first = client.get('/register_service')
+    assert first.status_code == 302 and '/auth/fabric/start' in first.headers['Location']
+    # The refresh did not happen (say FABRIC was unreachable): no second redirect
+    second = client.get('/register_service')
+    assert second.status_code == 200
+    assert 'Service - Echo' not in second.get_data(as_text=True)
+
+
+def test_service_has_a_friendly_name_and_an_address(portal, service):
+    client = portal.test_client()
+    login(client, 'TestAuthor')
+    body = {'service_name': 'friendly-svc', 'title': 'My Friendly Service',
+            'access_project_ids': [CONSUMER_PROJECT],
+            'nodes': [{'name': 'n', 'ipv6': '::1', 'port': 8080}],
+            'widgets': [{'id': 'w1', 'type': 'button', 'label': 'x', 'endpoint': '/api/x', 'method': 'GET'}]}
+    assert client.post('/api/register_service', json=body).status_code == 201
+
+    # People see the name; the address keeps the short form
+    listing = client.get('/available_services').get_data(as_text=True)
+    assert 'My Friendly Service' in listing and '/available_services/friendly-svc' in listing
+    assert 'My Friendly Service' in client.get('/available_services/friendly-svc').get_data(as_text=True)
+    assert 'My Friendly Service' in client.get('/edit_service/friendly-svc').get_data(as_text=True)
+
+    # A name typed where the address goes is refused, and the answer says which field
+    resp = client.post('/api/register_service', json=dict(body, service_name='My Friendly Service 2'))
+    assert resp.status_code == 400 and resp.json['field'] == 'service_name'
+    # Too long a name
+    resp = client.post('/api/register_service', json=dict(body, service_name='long-title', title='x' * 81))
+    assert resp.status_code == 400
+
+    # Without a name (older clients), the short name is shown
+    assert client.post('/api/register_service', json={
+        k: v for k, v in dict(body, service_name='no-title-svc').items() if k != 'title'}).status_code == 201
+    assert 'no-title-svc' in client.get('/available_services').get_data(as_text=True)
+
+
+def test_nodes_may_be_on_fabnetv6_or_fabnetv4(portal, service):
+    client = portal.test_client()
+    login(client, 'TestAuthor')
+    before = portal.config['SERVICE_NODE_NETWORK']
+    portal.config['SERVICE_NODE_NETWORK'] = '2602:fcfb::/40, 10.128.0.0/10'
+
+    def register(name, address):
+        return client.post('/api/register_service', json={
+            'service_name': name, 'access_project_ids': [CONSUMER_PROJECT],
+            'nodes': [{'name': 'n', 'ipv6': address, 'port': 8080}],
+            'widgets': [{'id': 'w1', 'type': 'button', 'label': 'x', 'endpoint': '/api/x', 'method': 'GET'}]})
+    try:
+        assert register('v4-node', '10.141.1.2').status_code == 201
+        assert register('v6-node', '2602:fcfb:9:18::2').status_code == 201
+        # Outside both networks, and not an address at all
+        for name, address in (('public-v4', '8.8.8.8'), ('private-v4', '192.168.1.5'),
+                              ('local-v6', '::1'), ('not-ip', 'my-node.example.org')):
+            resp = register(name, address)
+            assert resp.status_code == 400, (address, resp.json)
+    finally:
+        portal.config['SERVICE_NODE_NETWORK'] = before
+
+
+def test_approval_does_not_carry_over_to_an_address_changed_at_the_same_time(portal, service):
+    """The owner's edit read the service while it was pending; the admin approves the
+    old address before the edit is saved. The saved service must be pending again."""
+    from models import Service, db
+    owner = portal.test_client()
+    login(owner, 'TestAuthor')
+    link = {'service_name': 'raced-link', 'auth_mode': 'link',
+            'link_url': 'https://example.org/first', 'access_project_ids': [CONSUMER_PROJECT]}
+    assert owner.post('/api/register_service', json=link).status_code == 201
+
+    with portal.app_context():
+        # The owner's edit, up to the point of saving
+        svc = Service.query.filter_by(name='raced-link').first()
+        assert svc.status == 'pending'
+        svc.link_url = 'https://example.org/second'
+        svc.status = 'pending'
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(svc, 'status')
+        # Meanwhile the admin approves the first address (another connection)
+        with db.engine.begin() as conn:
+            conn.execute(db.text("UPDATE services SET status = 'active' "
+                                 "WHERE name = 'raced-link' AND link_url = 'https://example.org/first'"))
+        db.session.commit()
+        db.session.expire_all()
+        svc = Service.query.filter_by(name='raced-link').first()
+        assert (svc.link_url, svc.status) == ('https://example.org/second', 'pending')

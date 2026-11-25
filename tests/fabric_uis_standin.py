@@ -39,7 +39,8 @@ COOKIE_NAME = 'fabric-service'
 USERS = [
     # Member of the portal project: can register services
     {"uuid": "11111111-1111-1111-1111-111111111111", "name": "TestAuthor",
-     "email": "author@example.org", "project_ids": [PORTAL_PROJECT, CONSUMER_PROJECT]},
+     "email": "author@example.org", "project_ids": [PORTAL_PROJECT, CONSUMER_PROJECT],
+     "owns": [CONSUMER_PROJECT]},
     # Can use services that allow CONSUMER_PROJECT, cannot register
     {"uuid": "22222222-2222-2222-2222-222222222222", "name": "TestConsumer",
      "email": "consumer@example.org", "project_ids": [CONSUMER_PROJECT]},
@@ -49,6 +50,9 @@ USERS = [
     # Only in projects that are not active service projects: cannot use services
     {"uuid": "44444444-4444-4444-4444-444444444444", "name": "TestResearcher",
      "email": "researcher@example.org", "project_ids": [RESEARCH_PROJECT, RETIRED_SERVICE_PROJECT]},
+    # May register services, but only a member (not an owner) of a service project
+    {"uuid": "66666666-6666-6666-6666-666666666666", "name": "TestMemberAuthor",
+     "email": "member-author@example.org", "project_ids": [PORTAL_PROJECT, CONSUMER_PROJECT]},
     # In two service projects
     {"uuid": "55555555-5555-5555-5555-555555555555", "name": "TestTwoProjects",
      "email": "two@example.org", "project_ids": [SECOND_SERVICE_PROJECT, CONSUMER_PROJECT]},
@@ -137,7 +141,11 @@ def projects():
         return jsonify({"errors": [{"message": "Invalid token"}]}), 401
     offset = int(request.args.get('offset', 0))
     limit = int(request.args.get('limit', 5))
-    mine = [dict(PROJECTS[pid], uuid=pid) for pid in user['project_ids']]
+    # As FABRIC does: each project says what the caller is in it
+    mine = [dict(PROJECTS[pid], uuid=pid, memberships={
+                "is_creator": False, "is_member": True, "is_token_holder": False,
+                "is_owner": pid in user.get('owns', [])})
+            for pid in user['project_ids']]
     page = mine[offset:offset + limit]
     return jsonify({"results": page, "size": len(page), "total": len(mine),
                     "offset": offset, "limit": limit})

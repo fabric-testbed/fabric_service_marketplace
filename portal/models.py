@@ -31,7 +31,8 @@ class Service(db.Model):
     __tablename__ = 'services'
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    name = db.Column(db.String, unique=True, nullable=False)
+    name = db.Column(db.String, unique=True, nullable=False)   # short name, used in the address
+    title = db.Column(db.String, nullable=True)                 # the name people see
     description = db.Column(db.String)
     owner_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'),
                          nullable=False)
@@ -47,6 +48,10 @@ class Service(db.Model):
     status = db.Column(db.String, nullable=False, default='active')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    @property
+    def display_name(self):
+        return self.title or self.name
 
 
 class UsageLog(db.Model):

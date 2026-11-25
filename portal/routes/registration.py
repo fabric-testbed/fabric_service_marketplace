@@ -4,6 +4,7 @@ import re
 from datetime import datetime
 from urllib.parse import urlparse
 
+from sqlalchemy.orm.attributes import flag_modified
 from flask import Blueprint, request, jsonify, session, redirect, render_template, current_app, url_for
 
 from access import author_page, author_api
@@ -18,16 +19,45 @@ RESERVED_NAMES = {
 }
 
 SERVICE_NAME_RE = re.compile(r'^[a-z0-9][a-z0-9\-]{1,48}[a-z0-9]$')
+MAX_TITLE_LENGTH = 80
 # Widget endpoints are paths on the service node, e.g. /api/service_config or /v1/measure
 ENDPOINT_RE = re.compile(r'^/[A-Za-z0-9_\-./]+$')
 
 
-def _validate_projects(access_project_ids):
-    if not isinstance(access_project_ids, list) or not access_project_ids or not all(
-        isinstance(p, str) and p.strip() for p in access_project_ids
-    ):
-        return "Add at least one allowed FABRIC project UUID."
+def _owned_service_projects():
+    """The service projects the logged-in user owns (or created): [{"uuid", "name", "owner"}]."""
+    return [p for p in session['portal_user'].get('service_projects', []) if p.get('owner')]
+
+
+def _current_projects(service):
+    """The projects a saved service allows. One, except for services registered
+    before the one-project rule, which may have several."""
+    if service.access_project_ids_json:
+        return json.loads(service.access_project_ids_json)
+    return [service.access_project_id] if service.access_project_id else []
+
+
+def _validate_projects(access_project_ids, service):
+    """A service belongs to exactly one service project, and only an owner of that
+    project may register it. (An edit may keep the project the service has.)"""
+    if (not isinstance(access_project_ids, list) or len(access_project_ids) != 1
+            or not isinstance(access_project_ids[0], str) or not access_project_ids[0].strip()):
+        return "Choose the service project this service belongs to."
+    project = access_project_ids[0]
+    owned = {p['uuid'] for p in _owned_service_projects()}
+    if project not in owned and project != service.access_project_id:
+        return "Choose a service project that you own."
     return None
+
+
+def _set_project(service, access_project_ids):
+    """Store the (validated, single) project. A service from before the one-project
+    rule keeps all its projects for as long as its first project is left unchanged:
+    an edit of something else must not take access away from the others."""
+    if access_project_ids[0] != service.access_project_id or not _current_projects(service):
+        # First project also goes in the legacy single-value column
+        service.access_project_id = access_project_ids[0]
+        service.access_project_ids_json = json.dumps(access_project_ids)
 
 
 def _validate_nodes_and_widgets(nodes, widgets):
@@ -46,16 +76,22 @@ def _validate_nodes_and_widgets(nodes, widgets):
     if not nodes or not isinstance(nodes, list) or not all(
         n.get('name') and n.get('ipv6') and n.get('port') for n in nodes
     ):
-        return "Add at least one node; each node needs name, ipv6, and port."
+        return "Add at least one node; each node needs a name, an address and a port."
 
-    # Node addresses must be inside the service node network (FABnetv6)
-    network = ipaddress.ip_network(current_app.config['SERVICE_NODE_NETWORK'], strict=False)
+    # Node addresses must be inside a service node network (FABnetv6 or FABNetv4)
+    networks = [ipaddress.ip_network(v.strip(), strict=False)
+                for v in current_app.config['SERVICE_NODE_NETWORK'].split(',') if v.strip()]
     for n in nodes:
         try:
-            if ipaddress.ip_address(n['ipv6'].strip()) not in network:
-                raise ValueError
+            address = ipaddress.ip_address(str(n['ipv6']).strip())
         except ValueError:
-            return f"Node IPv6 address must be inside {network}"
+            return f"Node {n['name']}: '{n['ipv6']}' is not an IP address."
+        # Same version only: an IPv4 address is never "in" an IPv6 network
+        if not any(address.version == net.version and address in net for net in networks):
+            allowed = ' or '.join(str(net) for net in networks)
+            return (f"Node {n['name']}: {address} is not a FABnet address. "
+                    f"It must be inside {allowed}.")
+        n['ipv6'] = str(address)
         try:
             port = int(n['port'])
             if port < 1 or port > 65535:
@@ -77,21 +113,36 @@ def _apply_service_input(service, data):
     auth_mode = data.get('auth_mode', 'fabric_token')
     if auth_mode not in SERVICE_AUTH_MODES:
         return "Unknown access mode."
+    # The name people see; the short name (service.name) is the one in the address
+    title = data.get('title') or ''
+    if not isinstance(title, str) or len(title.strip()) > MAX_TITLE_LENGTH:
+        return f"The service name can be at most {MAX_TITLE_LENGTH} characters."
+    title = title.strip()
     if auth_mode == 'link':
-        # Checked against the database, like the admin pages, not the session
-        user = User.query.get(session['portal_user']['id'])
-        if not user or user.role != 'admin':
-            return "Only admins can add website links."
-
-    if auth_mode == 'link':
-        # Website link: no nodes, no widget, no project gate; the website has its own login
+        # Website link: no nodes and no widget; the website has its own login.
+        # An owner of a service project may ask for one under that project; it is
+        # listed once an admin has approved the web address. An admin's own link
+        # needs a project and that approval too.
         url = (data.get('link_url') or '').strip()
         error = _validate_link_url(url)
         if error:
             return error
+        # Like every service it belongs to a service project the author owns
+        access_project_ids = data.get('access_project_ids') or []
+        error = _validate_projects(access_project_ids, service)
+        if error:
+            return error
+        _set_project(service, access_project_ids)
+        # Every link is approved explicitly on the Admin page, an admin's own too
+        if not (service.auth_mode == 'link' and service.status == 'active' and service.link_url == url):
+            # New, or its web address changed: an admin has to look at it (again)
+            service.status = 'pending'
+            # Always written, even if it was already 'pending' when read: an admin
+            # may be approving the old address at this very moment, and that
+            # approval must not carry over to the new one.
+            if service.id is not None:
+                flag_modified(service, 'status')
         service.link_url = url
-        service.access_project_id = None
-        service.access_project_ids_json = None
         service.node_ipv6 = None
         service.node_port = None
         service.nodes_json = None
@@ -100,20 +151,22 @@ def _apply_service_input(service, data):
         nodes = data.get('nodes', [])
         widgets = data.get('widgets', [])
         access_project_ids = data.get('access_project_ids', [])
-        error = (_validate_projects(access_project_ids)
+        error = (_validate_projects(access_project_ids, service)
                  or _validate_nodes_and_widgets(nodes, widgets))
         if error:
             return error
         # First node / project also go in the legacy single-value columns
         service.link_url = None
-        service.access_project_id = access_project_ids[0]
-        service.access_project_ids_json = json.dumps(access_project_ids)
+        _set_project(service, access_project_ids)
         service.node_ipv6 = nodes[0]['ipv6']
         service.node_port = int(nodes[0]['port'])
         service.nodes_json = json.dumps(nodes)
         service.canvas_json = json.dumps(widgets)
+        # Apps on FABRIC nodes need no approval
+        service.status = 'active'
 
     service.auth_mode = auth_mode
+    service.title = title or None
     service.description = data.get('description', '')
     service.icon_color = data.get('icon_color', '#3B82F6')
     return None
@@ -145,13 +198,16 @@ def register_service():
 
     if not SERVICE_NAME_RE.match(service_name):
         return jsonify({
-            "error": "Invalid service name. Use lowercase letters, numbers, and "
-                     "hyphens (3-50 chars, must start/end with alphanumeric)."
+            "field": "service_name",
+            "error": "The address can only have lowercase letters, numbers and hyphens: "
+                     "3 to 50 characters, starting and ending with a letter or number."
         }), 400
     if service_name in RESERVED_NAMES:
-        return jsonify({"error": "That name is reserved."}), 400
+        return jsonify({"field": "service_name",
+                        "error": "That address is reserved. Please choose another."}), 400
     if Service.query.filter_by(name=service_name).first():
-        return jsonify({"error": "Service name already taken."}), 409
+        return jsonify({"field": "service_name",
+                        "error": "Another service already uses that address. Please choose another."}), 409
 
     service = Service(
         name=service_name,
@@ -165,6 +221,7 @@ def register_service():
     db.session.commit()
 
     return jsonify({
+        "status": service.status,
         "message": "Service registered successfully.",
         "url": f"/available_services/{service_name}",
         "flask_template": _template_for(service)
@@ -205,6 +262,7 @@ def edit_service_page(service_name):
         projects = [service.access_project_id] if service.access_project_id else []
     service_data = {
         'name': service.name,
+        'title': service.display_name,
         'description': service.description or '',
         'icon_color': service.icon_color or '#3B82F6',
         'auth_mode': service.auth_mode,
@@ -237,7 +295,8 @@ def update_service():
     service.updated_at = datetime.utcnow()
     db.session.commit()
 
-    return jsonify({"message": "Service updated.", "url": f"/available_services/{service_name}"}), 200
+    return jsonify({"message": "Service updated.", "status": service.status,
+                    "url": f"/available_services/{service_name}"}), 200
 
 
 @registration_bp.route('/register_service/success/<service_name>')

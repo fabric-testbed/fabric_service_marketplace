@@ -36,7 +36,7 @@
                     </div>
                 </div>
                 <div class="card-body">
-                    <h5 class="card-title text-dark">{{ svc.name }}</h5>
+                    <h5 class="card-title text-dark">{{ svc.display_name }}</h5>
                     <p class="card-text text-muted small">
                         {{ svc.description[:100] }}{% if svc.description|length > 100 %}...{% endif %}
                     </p>

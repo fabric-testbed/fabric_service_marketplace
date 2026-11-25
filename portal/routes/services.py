@@ -1,11 +1,11 @@
 import json
 
-from flask import Blueprint, request, session, render_template, current_app
+from flask import Blueprint, request, session, render_template, current_app, abort
 
 import health
 
 from access import current_user, can_use_service
-from models import Service
+from models import Service, User
 from fabric_auth import log_auth_attempt
 
 services_bp = Blueprint('services', __name__)
@@ -15,7 +15,8 @@ def _allowed_projects(service):
     # Use the list of allowed project IDs, falling back to legacy single ID
     if service.access_project_ids_json:
         return json.loads(service.access_project_ids_json)
-    return [service.access_project_id]
+    # None for a website link an admin added without a project
+    return [service.access_project_id] if service.access_project_id else []
 
 
 def _grant_service(service, user_id, name, uuid):
@@ -26,6 +27,17 @@ def _grant_service(service, user_id, name, uuid):
         ip_address=request.remote_addr, user_id=user_id
     )
     session[f'auth_{service.name}'] = {'id': user_id, 'name': name, 'uuid': uuid}
+
+
+def _is_admin(user):
+    """Checked against the database, like the admin pages, not the session."""
+    row = User.query.get(user['id'])
+    return bool(row and row.role == 'admin')
+
+
+def _open_to_everyone(service):
+    """A website link with no service project (only admins can add one)."""
+    return service.auth_mode == 'link' and not _allowed_projects(service)
 
 
 def _project_links(service):
@@ -39,9 +51,10 @@ def available_services():
     """Every registered service is listed. The ones the user cannot use yet (none
     of their service projects is allowed) are shown greyed out, with Request access."""
     user = current_user()
-    services = Service.query.order_by(Service.created_at.desc()).all()
+    # Website links waiting for an admin's approval (or rejected) are not listed
+    services = Service.query.filter_by(status='active').order_by(Service.created_at.desc()).all()
     usable = {svc.id for svc in services
-              if svc.auth_mode == 'link' or can_use_service(user, _allowed_projects(svc))}
+              if _open_to_everyone(svc) or can_use_service(user, _allowed_projects(svc))}
     return render_template('available_services.html', services=services, usable=usable,
                            service_projects=user.get('service_projects', []) if user else [],
                            active=health.statuses(current_app._get_current_object(), services))
@@ -51,9 +64,21 @@ def available_services():
 def service_page(service_name):
     service = Service.query.filter_by(name=service_name).first_or_404()
 
+    user = current_user()
+    if service.status != 'active':
+        # Waiting for approval, or rejected: only its owner and admins can look at it
+        if not user or not (user['id'] == service.owner_id or _is_admin(user)):
+            abort(404)
+
     if service.auth_mode == 'link':
-        # Website link: hosted elsewhere with its own login; anyone may follow it
-        return render_template('service_page.html', service=service, is_link=True, active=None)
+        # Website link: hosted elsewhere with its own login. Members of its service
+        # project get the link; others are shown how to ask for access. A link an
+        # admin added without a project is for everyone.
+        allowed = (_open_to_everyone(service) or can_use_service(user, _allowed_projects(service))
+                   or service.status != 'active')
+        return render_template('service_page.html', service=service, is_link=True, active=None,
+                               authenticated=allowed, denied=bool(user) and not allowed,
+                               project_links=[] if allowed else _project_links(service))
 
     session_key = f'auth_{service_name}'
     user = current_user()

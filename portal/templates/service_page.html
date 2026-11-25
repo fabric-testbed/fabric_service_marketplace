@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}{{ service.name }} - FABRIC Service{% endblock %}
+{% block title %}{{ service.display_name }} - FABRIC Service{% endblock %}
 {% block content %}
 <div class="row justify-content-center">
     <div class="col-md-8">
-        <h2>{{ service.name }}
+        <h2>{{ service.display_name }}
             {% if active %}<span class="badge bg-success fs-6 align-middle">Active</span>
             {% elif active is not none %}<span class="badge bg-secondary fs-6 align-middle">Inactive</span>{% endif %}
         </h2>
@@ -12,17 +12,26 @@
             This service's app is not running right now (checked every minute). Please try again later.
         </div>
         {% endif %}
+        {% if service.status == 'pending' %}
+        <div class="alert alert-warning py-2 small">
+            Waiting for an admin's approval. Only its owner and admins can see this page; it is not listed yet.
+        </div>
+        {% elif service.status == 'rejected' %}
+        <div class="alert alert-danger py-2 small">
+            An admin did not approve this service's web address. Its owner can change it to ask again.
+        </div>
+        {% endif %}
         <p class="text-muted">{{ service.description }}</p>
         <p class="small text-muted">by {{ service.owner.username }}</p>
 
-        {% if is_link %}
+        {% if is_link and authenticated %}
         <div class="card mt-4">
             <div class="card-body p-4">
                 <p class="text-muted mb-3">
                     This service is hosted on its own website and has its own login.
                 </p>
                 <a class="btn btn-primary" href="{{ service.link_url }}" target="_blank" rel="noopener">
-                    Open {{ service.name }} &#8599;
+                    Open {{ service.display_name }} &#8599;
                 </a>
                 <div class="small text-muted mt-2"><code>{{ service.link_url }}</code></div>
             </div>

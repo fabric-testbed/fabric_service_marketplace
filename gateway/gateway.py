@@ -16,7 +16,7 @@ never be used as an open proxy to the internet.
 Request format (sent by portal/gateway_client.py):
     <METHOD> /relay/<path on the service node>?<query>
     X-Gateway-Secret: <shared secret>
-    X-Target-Host:    <service node IPv6>
+    X-Target-Host:    <service node address: FABnetv6 or FABNetv4>
     X-Target-Port:    <service node port>
     Authorization, X-Fabric-User-*, Content-Type  (passed through)
 """
@@ -40,7 +40,7 @@ def _networks(value):
 
 SHARED_SECRET = os.environ.get('GATEWAY_SHARED_SECRET', '')
 ALLOWED_SOURCES = _networks(os.environ.get('GATEWAY_ALLOWED_SOURCES', ''))
-ALLOWED_TARGETS = _networks(os.environ.get('GATEWAY_ALLOWED_TARGETS', '2602:fcfb::/40'))
+ALLOWED_TARGETS = _networks(os.environ.get('GATEWAY_ALLOWED_TARGETS', '2602:fcfb::/40,10.128.0.0/10'))
 REQUEST_TIMEOUT = float(os.environ.get('GATEWAY_REQUEST_TIMEOUT', '10'))
 BEHIND_PROXY = os.environ.get('GATEWAY_BEHIND_PROXY', 'true').lower() == 'true'
 

@@ -170,9 +170,11 @@ def _fetch_identity(auth, invalid):
 
 def _fetch_service_projects(uis, auth, uuid):
     """
-    The user's active service projects, as [{"uuid", "name"}] sorted by name.
+    The user's active service projects, as [{"uuid", "name", "owner"}] sorted by name.
     Only these give access to services: FABRIC issues "service" tokens, which are
     safe to pass to service nodes, for projects of this type only.
+    "owner" is True if the user is an owner, the lead or the creator of the project: only
+    they may register a service under it.
     """
     wanted = current_app.config['SERVICE_PROJECT_TYPE']
     found, offset, limit = [], 0, 200
@@ -187,7 +189,9 @@ def _fetch_service_projects(uis, auth, uuid):
         page = body.get("results") or []
         for p in page:
             if p.get("active", True) and p.get("project_type") == wanted and p.get("uuid"):
-                found.append({"uuid": p["uuid"], "name": p.get("name") or p["uuid"]})
+                roles = p.get("memberships") or {}
+                found.append({"uuid": p["uuid"], "name": p.get("name") or p["uuid"],
+                              "owner": bool(roles.get("is_owner") or roles.get("is_creator") or roles.get("is_lead"))})
         offset += len(page)
         if not page or offset >= (body.get("total") or 0):
             return found

@@ -21,9 +21,9 @@ function setAuthMode(mode) {
 
 function applyAuthMode() {
     const isLink = getAuthMode() === 'link';
-    // Website links have no nodes, widget, code or project gate
+    // Website links have no nodes, widget or code (they do have a service project)
     document.getElementById('link-url-section').classList.toggle('d-none', !isLink);
-    for (const id of ['projects-section', 'nodes-section', 'widget-section', 'preview-section']) {
+    for (const id of ['nodes-section', 'widget-section', 'preview-section']) {
         document.getElementById(id).classList.toggle('d-none', isLink);
     }
     schedulePreview();
@@ -68,7 +68,7 @@ async function updatePreview() {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({widgets: validWidgets, port: port,
-                                  auth_mode: getAuthMode(), access_project_ids: collectProjects()})
+                                  auth_mode: getAuthMode(), access_project_ids: previewProjects()})
         });
         const data = await resp.json();
         if (resp.ok) {
@@ -290,30 +290,57 @@ function collectWidgets() {
 
 // ── Project management ──
 
-function addProjectRow(prefillUuid) {
-    const container = document.getElementById('projects-list');
-    const row = document.createElement('div');
-    row.className = 'project-row d-flex gap-2 align-items-center mb-2';
-    row.innerHTML = `
-        <input type="text" class="form-control form-control-sm project-uuid"
-               placeholder="FABRIC project UUID" value="${prefillUuid || ''}">
-        <button type="button" class="btn btn-sm btn-outline-danger remove-project-btn">&times;</button>
-    `;
-    row.querySelector('.remove-project-btn').addEventListener('click', () => { row.remove(); schedulePreview(); });
-    container.appendChild(row);
+// One service project per service, chosen by name from the service projects the
+// user owns and saved by its ID.
+
+const MY_SERVICE_PROJECTS = window.MY_SERVICE_PROJECTS || [];
+
+function renderProjectChoices(selectedUuids) {
+    const select = document.getElementById('svc-project');
+    const current = (selectedUuids || [])[0] || '';
+    savedProjects = selectedUuids || [];
+    const addOption = (value, text) => {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = text;
+        select.appendChild(option);
+    };
+    if (MY_SERVICE_PROJECTS.length === 0 && !current) {
+        addOption('', 'You do not own a service project');
+        select.disabled = true;
+        return;
+    }
+    if (!current && MY_SERVICE_PROJECTS.length > 1) addOption('', 'Choose a service project…');
+    for (const project of MY_SERVICE_PROJECTS) addOption(project.uuid, project.name);
+    // The project a service already has stays selectable, even if it is not the user's own
+    if (current && !MY_SERVICE_PROJECTS.some(p => p.uuid === current)) addOption(current, current);
+    select.value = current || select.options[0].value;
+    // A service from before the one-project rule: say what choosing another project does
+    const others = (selectedUuids || []).length - 1;
+    if (others > 0) {
+        const note = document.getElementById('svc-project-note');
+        note.textContent = `This service also allows ${others} other project${others > 1 ? 's' : ''}, ` +
+            'from before services were limited to one. They are kept unless you choose a different ' +
+            'project here; then only the chosen one is allowed.';
+        note.classList.remove('d-none');
+    }
 }
 
 function collectProjects() {
-    const rows = document.querySelectorAll('.project-row');
-    const projects = [];
-    for (const row of rows) {
-        const uuid = row.querySelector('.project-uuid').value.trim();
-        if (uuid) projects.push(uuid);
-    }
-    return projects;
+    const uuid = document.getElementById('svc-project').value;
+    return uuid ? [uuid] : [];
 }
 
-document.getElementById('add-project-btn').addEventListener('click', () => addProjectRow());
+// The projects the generated code should allow: what the service will have once
+// saved. A service from before the one-project rule keeps all its projects while
+// its first project is left as it is (as the portal does on save).
+let savedProjects = [];
+
+function previewProjects() {
+    const chosen = collectProjects();
+    if (savedProjects.length > 1 && chosen[0] === savedProjects[0]) return savedProjects;
+    return chosen;
+}
 
 // ── Node management ──
 
@@ -325,7 +352,7 @@ function addNodeRow(prefill) {
         <input type="text" class="form-control form-control-sm node-name"
                placeholder="Node Name" style="flex: 2;" value="${prefill ? prefill.name : ''}">
         <input type="text" class="form-control form-control-sm node-ipv6"
-               placeholder="FABnetv6 IP Address" style="flex: 3;" value="${prefill ? prefill.ipv6 : ''}">
+               placeholder="FABnet address (v6 or v4), e.g. 2602:fcfb:… or 10.128.…" style="flex: 3;" value="${prefill ? prefill.ipv6 : ''}">
         <input type="number" class="form-control form-control-sm node-port"
                placeholder="Port" value="${prefill ? prefill.port : '8080'}" min="1" max="65535" style="max-width: 100px;">
         <button type="button" class="btn btn-sm btn-outline-danger remove-node-btn">&times;</button>
@@ -352,7 +379,7 @@ document.getElementById('add-node-btn').addEventListener('click', () => addNodeR
 document.getElementById('widget-canvas').addEventListener('input', schedulePreview);
 document.getElementById('widget-canvas').addEventListener('change', schedulePreview);
 document.getElementById('nodes-list').addEventListener('input', schedulePreview);
-document.getElementById('projects-list').addEventListener('input', schedulePreview);
+document.getElementById('svc-project').addEventListener('change', schedulePreview);
 
 const copyBtn = document.getElementById('preview-copy-btn');
 if (copyBtn) {
@@ -368,15 +395,15 @@ if (copyBtn) {
 // ── Edit mode ──
 
 function loadServiceData(data) {
+    document.getElementById('svc-title').value = data.title || data.name;
     document.getElementById('svc-name').value = data.name;
     document.getElementById('svc-name').readOnly = true;
     document.getElementById('svc-desc').value = data.description;
     document.getElementById('svc-color').value = data.icon_color;
     document.getElementById('svc-link-url').value = data.link_url || '';
 
-    for (const uuid of data.access_project_ids) addProjectRow(uuid);
+    renderProjectChoices(data.access_project_ids);
     for (const node of data.nodes) addNodeRow(node);
-    if (data.access_project_ids.length === 0) addProjectRow();
     if (data.nodes.length === 0) addNodeRow();
 
     if (!data.widgets || data.widgets.length === 0) {
@@ -416,35 +443,114 @@ function loadServiceData(data) {
 if (window.EDIT_MODE && window.SERVICE_DATA) {
     loadServiceData(window.SERVICE_DATA);
 } else {
-    addProjectRow();
+    renderProjectChoices([]);
     addNodeRow();
     // Auto-create the widget form (Input Form, GET, /api/service_config)
     createWidgetCard('form');
+}
+
+// ── Field errors: shown on the field itself, which is scrolled into view ──
+
+function clearFieldErrors() {
+    document.querySelectorAll('.is-invalid').forEach(el => el.classList.remove('is-invalid'));
+    document.querySelectorAll('.field-error').forEach(el => el.remove());
+    document.getElementById('register-error').classList.add('d-none');
+}
+
+function fieldError(el, msg) {
+    el.classList.add('is-invalid');
+    const anchor = el.closest('.node-row, .input-group') || el;
+    const note = document.createElement('div');
+    note.className = 'field-error text-danger small mt-1';
+    note.textContent = msg;
+    anchor.after(note);
+    el.scrollIntoView({behavior: 'smooth', block: 'center'});
+    el.focus({preventScroll: true});
+    // Once the user starts fixing it, the mark goes away
+    const clear = () => { el.classList.remove('is-invalid'); note.remove(); };
+    el.addEventListener('input', clear, {once: true});
+    el.addEventListener('change', clear, {once: true});
+}
+
+// ── Service name → address ──
+// The user types a name ("FABRIC LLM Service"); the address of the service's page
+// ("fabric-llm-service") is filled in from it until they change the address themselves.
+
+const SERVICE_NAME_RE = /^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$/;
+let addressEdited = false;
+
+function addressFromName(name) {
+    return name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+/, '').slice(0, 50).replace(/-+$/, '');
+}
+
+document.getElementById('svc-title').addEventListener('input', (e) => {
+    if (window.EDIT_MODE || addressEdited) return;
+    document.getElementById('svc-name').value = addressFromName(e.target.value);
+});
+document.getElementById('svc-name').addEventListener('input', (e) => {
+    addressEdited = e.target.value.trim() !== '';
+});
+
+// The first problem with the node rows as [field, message], or null
+function nodeProblem() {
+    const rows = [...document.querySelectorAll('.node-row')];
+    if (rows.length === 0) return [document.getElementById('add-node-btn'), 'Please add at least one node.'];
+    for (const row of rows) {
+        const name = row.querySelector('.node-name');
+        const address = row.querySelector('.node-ipv6');
+        const port = row.querySelector('.node-port');
+        const value = address.value.trim();
+        if (!name.value.trim()) return [name, 'Give this node a name, e.g. the name it has in your slice.'];
+        if (!value) return [address, "Enter the node's FABnet address (FABnetv6 or FABNetv4)."];
+        const isV4 = /^\d{1,3}(\.\d{1,3}){3}$/.test(value);
+        if (!isV4 && !value.includes(':')) {
+            return [address, "That is not an IP address. Enter the node's FABnet address, " +
+                             'e.g. 2602:fcfb:… (FABnetv6) or 10.128.… (FABNetv4).'];
+        }
+        const portNumber = parseInt(port.value);
+        if (!(portNumber >= 1 && portNumber <= 65535)) return [port, 'Enter the port your app listens on (1 to 65535).'];
+    }
+    return null;
 }
 
 // ── Register / Update ──
 
 document.getElementById('register-btn').addEventListener('click', async () => {
     const errorDiv = document.getElementById('register-error');
-    errorDiv.classList.add('d-none');
+    clearFieldErrors();
 
-    const serviceName = document.getElementById('svc-name').value.trim().toLowerCase();
+    const titleInput = document.getElementById('svc-title');
+    const nameInput = document.getElementById('svc-name');
+    const title = titleInput.value.trim();
+    const serviceName = nameInput.value.trim().toLowerCase();
     const description = document.getElementById('svc-desc').value.trim();
     const nodes = collectNodes();
     const accessProjects = collectProjects();
     const iconColor = document.getElementById('svc-color').value;
     const authMode = getAuthMode();
-    const linkUrl = document.getElementById('svc-link-url').value.trim();
+    const linkInput = document.getElementById('svc-link-url');
+    const linkUrl = linkInput.value.trim();
     const showError = (msg) => { errorDiv.textContent = msg; errorDiv.classList.remove('d-none'); };
 
-    if (!serviceName) { showError('Please fill in the service name.'); return; }
+    if (!title) { fieldError(titleInput, 'Please give your service a name.'); return; }
+    if (!SERVICE_NAME_RE.test(serviceName)) {
+        fieldError(nameInput, 'Use lowercase letters, numbers and hyphens: 3 to 50 characters, ' +
+                              'starting and ending with a letter or number. Example: fabric-llm-service');
+        return;
+    }
+
+    if (accessProjects.length === 0) {
+        fieldError(document.getElementById('svc-project'), 'Please choose the service project this service belongs to.');
+        return;
+    }
 
     let collectedWidgets = [];
     if (authMode === 'link') {
-        if (!linkUrl) { showError('Please enter the service URL.'); return; }
+        if (!linkUrl) { fieldError(linkInput, "Please enter the service's web address."); return; }
     } else {
-        if (accessProjects.length === 0) { showError('Please add at least one allowed project UUID.'); return; }
-        if (nodes.length === 0) { showError('Please add at least one node.'); return; }
+        const problem = nodeProblem();
+        if (problem) { fieldError(problem[0], problem[1]); return; }
         collectedWidgets = collectWidgets();
         if (collectedWidgets.length === 0 || !collectedWidgets[0].label || !collectedWidgets[0].endpoint) {
             showError('Please add a widget with a label and endpoint.');
@@ -466,7 +572,7 @@ document.getElementById('register-btn').addEventListener('click', async () => {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
-                service_name: serviceName, description, nodes,
+                service_name: serviceName, title, description, nodes,
                 access_project_ids: accessProjects, icon_color: iconColor,
                 widgets: collectedWidgets, auth_mode: authMode, link_url: linkUrl
             })
@@ -474,13 +580,13 @@ document.getElementById('register-btn').addEventListener('click', async () => {
         const data = await resp.json();
         if (resp.ok) {
             window.location.href = isEdit ? '/my_services' : `/register_service/success/${encodeURIComponent(serviceName)}`;
+        } else if (data.field === 'service_name') {
+            fieldError(nameInput, data.error);
         } else {
-            errorDiv.textContent = data.error || 'Operation failed.';
-            errorDiv.classList.remove('d-none');
+            showError(data.error || 'Operation failed.');
         }
     } catch (e) {
-        errorDiv.textContent = 'Network error.';
-        errorDiv.classList.remove('d-none');
+        showError('Could not reach the portal. Please check your connection and try again.');
     } finally {
         btn.disabled = false;
         btn.textContent = isEdit ? 'Update Service' : 'Register Service';

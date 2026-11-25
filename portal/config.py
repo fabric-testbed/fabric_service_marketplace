@@ -73,8 +73,9 @@ class Config:
     # 'service' tokens can only identify the user; 'resource' tokens can create slices.
     REQUIRED_TOKEN_SCOPE = os.environ.get('PORTAL_REQUIRED_TOKEN_SCOPE', 'service').strip()
 
-    # Service nodes must live inside this network (FABnetv6)
-    SERVICE_NODE_NETWORK = os.environ.get('PORTAL_SERVICE_NODE_NETWORK', '2602:fcfb::/40')
+    # Service nodes must live inside one of these networks, separated by commas:
+    # FABnetv6 and FABNetv4. Keep it the same as the gateway's GATEWAY_ALLOWED_TARGETS.
+    SERVICE_NODE_NETWORK = os.environ.get('PORTAL_SERVICE_NODE_NETWORK', '2602:fcfb::/40,10.128.0.0/10')
 
     # The gateway that relays widget calls onto FABnetv6
     GATEWAY_URL = os.environ.get('GATEWAY_URL', '').rstrip('/')

@@ -20,7 +20,7 @@
             {% for svc in services %}
             <tr>
                 <td>
-                    <a href="/edit_service/{{ svc.name }}">{{ svc.name }}</a>
+                    <a href="/edit_service/{{ svc.name }}">{{ svc.display_name }}</a>
                 </td>
                 <td>{{ svc.description[:60] }}{% if svc.description|length > 60 %}...{% endif %}</td>
                 <td>
@@ -36,7 +36,11 @@
                     {% endif %}
                 </td>
                 <td>
-                    {% if active[svc.id] %}
+                    {% if svc.status == 'pending' %}
+                        <span class="badge bg-warning" title="Listed once an admin has approved its web address">Waiting for approval</span>
+                    {% elif svc.status == 'rejected' %}
+                        <span class="badge bg-danger" title="An admin did not approve its web address. Edit it to ask again.">Rejected</span>
+                    {% elif active[svc.id] %}
                         <span class="badge bg-success">Active</span>
                     {% elif active[svc.id] is not none %}
                         <span class="badge bg-secondary" title="Its app is not answering on any node">Inactive</span>
