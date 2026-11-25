@@ -1408,3 +1408,18 @@ def test_approval_does_not_carry_over_to_an_address_changed_at_the_same_time(por
         db.session.expire_all()
         svc = Service.query.filter_by(name='raced-link').first()
         assert (svc.link_url, svc.status) == ('https://example.org/second', 'pending')
+
+
+def test_request_access_names_the_project(portal, service):
+    owner = portal.test_client()
+    login(owner, 'TestAuthor')
+    assert owner.post('/api/register_service', json={
+        'service_name': 'named-project-svc', 'access_project_ids': [CONSUMER_PROJECT],
+        'nodes': [{'name': 'n', 'ipv6': '::1', 'port': 8080}],
+        'widgets': [{'id': 'w1', 'type': 'button', 'label': 'x', 'endpoint': '/api/x', 'method': 'GET'}],
+    }).status_code == 201
+    outsider = portal.test_client()
+    login(outsider, 'TestOutsider')
+    page = outsider.get('/available_services/named-project-svc').get_data(as_text=True)
+    assert 'Request to join Service - Echo' in page
+    assert f'/projects/{CONSUMER_PROJECT}' in page

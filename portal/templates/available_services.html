@@ -46,7 +46,7 @@
                     {% if svc.auth_mode == 'link' %}<span class="badge bg-info text-dark">Website link</span>{% endif %}
                     {% if svc.id not in usable %}
                         {% if current_user %}
-                        <span class="badge bg-warning text-dark" title="You are not a member of a service project allowed to use this service">Request access</span>
+                        <span class="badge bg-warning text-dark" title="You are not a member of this service's FABRIC service project">Request access</span>
                         {% else %}
                         <span class="badge bg-light text-dark border">Log in to use</span>
                         {% endif %}

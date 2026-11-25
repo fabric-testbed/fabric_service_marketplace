@@ -19,6 +19,7 @@ def _upgrade_database():
         'auth_mode': "VARCHAR NOT NULL DEFAULT 'fabric_token'",
         'link_url': 'VARCHAR',
         'title': 'VARCHAR',
+        'access_project_name': 'VARCHAR',
     }
     with db.engine.begin() as conn:
         for name, ddl in new_columns.items():

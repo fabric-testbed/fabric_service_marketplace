@@ -43,7 +43,9 @@ def _open_to_everyone(service):
 def _project_links(service):
     """Where a user asks to join each of the service's allowed projects: its page on the FABRIC portal."""
     base = current_app.config['FABRIC_PORTAL_URL']
-    return [{'uuid': p, 'url': f'{base}/projects/{p}'} for p in _allowed_projects(service) if p]
+    return [{'uuid': p, 'url': f'{base}/projects/{p}',
+             'name': service.access_project_name if p == service.access_project_id else None}
+            for p in _allowed_projects(service) if p]
 
 
 @services_bp.route('/available_services')

@@ -38,6 +38,7 @@ class Service(db.Model):
                          nullable=False)
     access_project_id = db.Column(db.String, nullable=True)   # legacy single project
     access_project_ids_json = db.Column(db.Text, nullable=True)  # JSON array of project UUIDs
+    access_project_name = db.Column(db.String, nullable=True)   # the project's name, as its owner saw it when saving
     node_ipv6 = db.Column(db.String, nullable=True)       # legacy single-node
     node_port = db.Column(db.Integer, nullable=True)       # legacy single-node
     nodes_json = db.Column(db.Text, nullable=True)         # JSON array of {name, ipv6, port}

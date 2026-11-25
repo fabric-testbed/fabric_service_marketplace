@@ -40,18 +40,19 @@
         {% if denied %}
         <div class="alert alert-warning mt-4">
             You are logged in as <strong>{{ current_user.name }}</strong>, but you are not a
-            member of any FABRIC service project allowed to use this service.
+            member of this service's FABRIC service project{% if project_links and project_links[0].name %},
+            <strong>{{ project_links[0].name }}</strong>{% endif %}.
         </div>
         <div class="card mt-3">
             <div class="card-body p-4">
                 <h5 class="card-title">Request access</h5>
                 <p class="text-muted">
-                    Ask to join one of the service's allowed projects on the FABRIC portal.
+                    Ask to join the service's project on the FABRIC portal.
                     Once the project's owner has added you, log out and sign in again.
                 </p>
                 {% for p in project_links %}
                 <a class="btn btn-outline-primary btn-sm me-2 mb-2" href="{{ p.url }}" target="_blank" rel="noopener">
-                    Request to join project <code>{{ p.uuid }}</code> &#8599;
+                    {% if p.name %}Request to join {{ p.name }}{% else %}Request to join project <code>{{ p.uuid }}</code>{% endif %} &#8599;
                 </a>
                 {% endfor %}
             </div>
@@ -61,7 +62,7 @@
             <div class="card-body p-4">
                 <h5 class="card-title">Log in to use this service</h5>
                 <p class="text-muted">
-                    You need to be a member of one of the service's allowed FABRIC service projects.
+                    You need to be a member of the service's FABRIC service project.
                 </p>
                 <a class="btn btn-primary w-100"
                    href="/login?next={{ ('/available_services/' ~ service.name)|urlencode }}">Log in</a>

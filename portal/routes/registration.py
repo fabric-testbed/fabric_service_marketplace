@@ -58,6 +58,12 @@ def _set_project(service, access_project_ids):
         # First project also goes in the legacy single-value column
         service.access_project_id = access_project_ids[0]
         service.access_project_ids_json = json.dumps(access_project_ids)
+        service.access_project_name = None
+    # Keep the project's name, to show to people who are not members of it (they
+    # cannot look it up themselves). Refreshed whenever an owner saves the service.
+    names = {p['uuid']: p['name'] for p in _owned_service_projects()}
+    if service.access_project_id in names:
+        service.access_project_name = names[service.access_project_id]
 
 
 def _validate_nodes_and_widgets(nodes, widgets):

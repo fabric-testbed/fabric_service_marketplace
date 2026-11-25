@@ -29,7 +29,7 @@ def _service_token(service):
     user = current_user()
     project_id = service_project_for(user, _allowed_projects(service))
     if not project_id:
-        return None, "You are not a member of a FABRIC service project allowed to use this service."
+        return None, "You are not a member of this service's FABRIC service project."
     if user.get('signed_in_with') == 'fabric':
         return credmgr_client.service_token(user, project_id, vouch_cookies(request.cookies),
                                             service.name)
