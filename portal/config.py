@@ -63,7 +63,7 @@ class Config:
     FABRIC_PORTAL_URL = os.environ.get('FABRIC_PORTAL_URL', 'https://portal.fabric-testbed.net').rstrip('/')
     # Where users can ask a service's owners about access: shown next to
     # "Request to join" on a service they cannot use. Empty = no such button.
-    ACCESS_HELP_URL = os.environ.get('PORTAL_ACCESS_HELP_URL', 'https://learn.fabric-testbed.net/forums/').strip()
+    ACCESS_HELP_URL = os.environ.get('PORTAL_ACCESS_HELP_URL', 'https://learn.fabric-testbed.net/forums/forum/fabric-general-questions-and-discussion/').strip()
 
     # FABRIC Credential Manager: issues the service token passed to a service's
     # nodes, one per service project, for users who signed in with FABRIC.
