@@ -1423,3 +1423,11 @@ def test_request_access_names_the_project(portal, service):
     page = outsider.get('/available_services/named-project-svc').get_data(as_text=True)
     assert 'Request to join Service - Echo' in page
     assert f'/projects/{CONSUMER_PROJECT}' in page
+    # A second way to ask: the forum (PORTAL_ACCESS_HELP_URL)
+    assert 'Ask on the FABRIC forum' in page and portal.config['ACCESS_HELP_URL'] in page
+    before = portal.config['ACCESS_HELP_URL']
+    portal.config['ACCESS_HELP_URL'] = ''
+    try:
+        assert 'Ask on the FABRIC forum' not in outsider.get('/available_services/named-project-svc').get_data(as_text=True)
+    finally:
+        portal.config['ACCESS_HELP_URL'] = before

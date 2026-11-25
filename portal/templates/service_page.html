@@ -49,12 +49,19 @@
                 <p class="text-muted">
                     Ask to join the service's project on the FABRIC portal.
                     Once the project's owner has added you, log out and sign in again.
+                    {% if access_help_url %}If you have a question for the service's owners,
+                    or your request is not answered, ask on the FABRIC forum.{% endif %}
                 </p>
                 {% for p in project_links %}
                 <a class="btn btn-outline-primary btn-sm me-2 mb-2" href="{{ p.url }}" target="_blank" rel="noopener">
                     {% if p.name %}Request to join {{ p.name }}{% else %}Request to join project <code>{{ p.uuid }}</code>{% endif %} &#8599;
                 </a>
                 {% endfor %}
+                {% if access_help_url %}
+                <a class="btn btn-outline-secondary btn-sm me-2 mb-2" href="{{ access_help_url }}" target="_blank" rel="noopener">
+                    Ask on the FABRIC forum &#8599;
+                </a>
+                {% endif %}
             </div>
         </div>
         {% else %}

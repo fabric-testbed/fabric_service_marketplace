@@ -407,6 +407,8 @@ then `sudo bash restart.sh`.
   **Request access**; the service's page links to its project on the
   FABRIC portal (`FABRIC_PORTAL_URL`), where the user asks to join. After being
   added they log out and sign in again.
+  A second button, "Ask on the FABRIC forum", goes to `PORTAL_ACCESS_HELP_URL`
+  (default: the FABRIC forum; empty removes the button).
 - Logging out of the portal also ends the FABRIC sign-in (clears the login
   cookie), like the Credential Manager's logout. To leave it alone, set
   `PORTAL_VOUCH_LOGOUT_URL=` (empty) in `portal.env`.

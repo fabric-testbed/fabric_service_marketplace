@@ -77,7 +77,8 @@ def create_app():
     # Make session info available to all templates
     @app.context_processor
     def inject_user():
-        return {'current_user': session.get('portal_user')}
+        return {'current_user': session.get('portal_user'),
+                'access_help_url': app.config['ACCESS_HELP_URL']}
 
     # Create tables, and add columns introduced after a database was created
     with app.app_context():
