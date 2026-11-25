@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Admin Dashboard - FABRIC Service Portal{% endblock %}
+{% block title %}Admin Dashboard - FABRIC Service Marketplace{% endblock %}
 {% block content %}
 <h2 class="mb-4">Admin Dashboard</h2>
 
@@ -58,6 +58,42 @@
     </div>
 </div>
 
+<!-- Website links that project owners asked for -->
+{% if pending %}
+<div class="card mb-4 border-warning">
+    <div class="card-header"><strong>Website links waiting for approval</strong> ({{ pending|length }})</div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm mb-0 align-middle">
+                <thead>
+                    <tr><th>Name</th><th>Requested by</th><th>Web address</th><th>Service project</th><th>Decision</th></tr>
+                </thead>
+                <tbody>
+                    {% for svc in pending %}
+                    <tr>
+                        <td><a href="/available_services/{{ svc.name }}">{{ svc.display_name }}</a>
+                            <div class="small text-muted">{{ svc.description }}</div></td>
+                        <td>{{ svc.owner.username }}{% if svc.owner.email %}<div class="small text-muted">{{ svc.owner.email }}</div>{% endif %}</td>
+                        <td><a href="{{ svc.link_url }}" target="_blank" rel="noopener">{{ svc.link_url }}</a></td>
+                        <td><code class="small">{{ svc.access_project_id }}</code></td>
+                        <td class="text-nowrap">
+                            <button class="btn btn-xs btn-success review-svc" data-name="{{ svc.name }}" data-url="{{ svc.link_url }}" data-decision="approve">Approve</button>
+                            <button class="btn btn-xs btn-outline-danger review-svc" data-name="{{ svc.name }}" data-decision="reject">Reject</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div id="review-error" class="alert alert-danger d-none m-2 py-2 small"></div>
+        <div class="card-footer small text-muted">
+            Open the web address and check that it is the service it claims to be before approving.
+            An approved link is listed for members of its service project.
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <!-- Services -->
 <div class="card mb-4">
     <div class="card-header"><strong>All Services</strong> ({{ services|length }})</div>
@@ -77,7 +113,7 @@
                 <tbody>
                     {% for svc in services %}
                     <tr>
-                        <td><a href="/available_services/{{ svc.name }}">{{ svc.name }}</a></td>
+                        <td><a href="/available_services/{{ svc.name }}">{{ svc.display_name }}</a></td>
                         <td>{{ svc.owner.username }}</td>
                         <td>
                             <span class="badge bg-secondary me-1">{{ {'fabric_token': 'FABRIC nodes', 'link': 'Website link'}.get(svc.auth_mode, svc.auth_mode) }}</span>
@@ -92,7 +128,11 @@
                             {% endif %}
                         </td>
                         <td>
-                            {% if active[svc.id] %}
+                            {% if svc.status == 'pending' %}
+                                <span class="badge bg-warning">Waiting for approval</span>
+                            {% elif svc.status == 'rejected' %}
+                                <span class="badge bg-danger">Rejected</span>
+                            {% elif active[svc.id] %}
                                 <span class="badge bg-success">Active</span>
                             {% elif active[svc.id] is not none %}
                                 <span class="badge bg-secondary">Inactive</span>
@@ -218,6 +258,21 @@ document.querySelectorAll('.toggle-role-btn').forEach(btn => {
             body: JSON.stringify({role: newRole})
         });
         if (resp.ok) window.location.reload();
+    });
+});
+
+document.querySelectorAll('.review-svc').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        const resp = await fetch(`/admin/services/${encodeURIComponent(btn.dataset.name)}/review`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({decision: btn.dataset.decision, link_url: btn.dataset.url})
+        });
+        if (resp.ok) { window.location.reload(); return; }
+        const data = await resp.json().catch(() => ({}));
+        const note = document.getElementById('review-error');
+        note.textContent = data.error || 'That did not work. Please reload the page and try again.';
+        note.classList.remove('d-none');
     });
 });
 

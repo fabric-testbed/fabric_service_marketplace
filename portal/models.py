@@ -31,12 +31,16 @@ class Service(db.Model):
     __tablename__ = 'services'
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    name = db.Column(db.String, unique=True, nullable=False)
+    name = db.Column(db.String, unique=True, nullable=False)   # short name, used in the address
+    title = db.Column(db.String, nullable=True)                 # the name people see
     description = db.Column(db.String)
     owner_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'),
                          nullable=False)
     access_project_id = db.Column(db.String, nullable=True)   # legacy single project
     access_project_ids_json = db.Column(db.Text, nullable=True)  # JSON array of project UUIDs
+    access_project_name = db.Column(db.String, nullable=True)   # the project's name, as its owner saw it when saving
+    # The owner's choice: may people who cannot use the service email them from its page?
+    allow_owner_email = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
     node_ipv6 = db.Column(db.String, nullable=True)       # legacy single-node
     node_port = db.Column(db.Integer, nullable=True)       # legacy single-node
     nodes_json = db.Column(db.Text, nullable=True)         # JSON array of {name, ipv6, port}
@@ -47,6 +51,10 @@ class Service(db.Model):
     status = db.Column(db.String, nullable=False, default='active')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    @property
+    def display_name(self):
+        return self.title or self.name
 
 
 class UsageLog(db.Model):
@@ -101,4 +109,22 @@ class UserToken(db.Model):
     ref = db.Column(db.String, unique=True, nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'))
     token = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class ServiceToken(db.Model):
+    """
+    A FABRIC service token issued by the Credential Manager for a user who signed
+    in with FABRIC, one per service project, kept until it expires so it is not
+    issued again on every widget call. Tied to the browser session by `ref`,
+    like UserToken, and deleted at logout.
+    """
+    __tablename__ = 'service_tokens'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    ref = db.Column(db.String, nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'))
+    project_id = db.Column(db.String, nullable=False)
+    token = db.Column(db.Text, nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

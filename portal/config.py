@@ -12,7 +12,8 @@ def _bool(name, default):
 
 
 # Generate and persist a secret key so sessions survive restarts
-_secret_key_file = os.path.join(_here, '.secret_key')
+# (in Docker: PORTAL_SECRET_KEY_FILE points into the mounted data folder)
+_secret_key_file = os.environ.get('PORTAL_SECRET_KEY_FILE') or os.path.join(_here, '.secret_key')
 if os.environ.get('PORTAL_SECRET_KEY'):
     _secret_key = os.environ['PORTAL_SECRET_KEY']
 elif os.path.exists(_secret_key_file):
@@ -49,12 +50,35 @@ class Config:
     # login (e.g. CILogon). Empty = not set up yet; testers use /token_test.
     LOGIN_URL = os.environ.get('PORTAL_LOGIN_URL', '').strip()
 
+    # "Sign in with FABRIC" (routes/auth.py, /auth/fabric/start): the same login as
+    # the Credential Manager. vouch-proxy sends the user to CILogon and sets a
+    # cookie; the portal passes that cookie to FABRIC to find out who the user is.
+    # The cookie's name, as in vouch's config (vouch.cookie.name)
+    VOUCH_COOKIE_NAME = os.environ.get('PORTAL_VOUCH_COOKIE_NAME', 'fabric-service').strip()
+    # Where the browser goes to log in / out: vouch-proxy behind this portal's Nginx
+    VOUCH_LOGIN_URL = os.environ.get('PORTAL_VOUCH_LOGIN_URL', '/vouch/login').strip()
+    VOUCH_LOGOUT_URL = os.environ.get('PORTAL_VOUCH_LOGOUT_URL', '/vouch/logout').strip()
+
+    # The FABRIC portal, where users ask to join a project (<url>/projects/<uuid>)
+    FABRIC_PORTAL_URL = os.environ.get('FABRIC_PORTAL_URL', 'https://portal.fabric-testbed.net').rstrip('/')
+    # Where users can ask a service's owners about access: shown next to
+    # "Request to join" on a service they cannot use. Empty = no such button.
+    ACCESS_HELP_URL = os.environ.get('PORTAL_ACCESS_HELP_URL', 'https://learn.fabric-testbed.net/forums/forum/fabric-general-questions-and-discussion/').strip()
+
+    # FABRIC Credential Manager: issues the service token passed to a service's
+    # nodes, one per service project, for users who signed in with FABRIC.
+    CREDMGR_URL = os.environ.get('FABRIC_CREDMGR_URL', 'https://cm.fabric-testbed.net').rstrip('/')
+    SERVICE_TOKEN_HOURS = int(os.environ.get('PORTAL_SERVICE_TOKEN_HOURS', '4'))
+    # Only projects of this type give access to services (their tokens have scope "service")
+    SERVICE_PROJECT_TYPE = os.environ.get('PORTAL_SERVICE_PROJECT_TYPE', 'service').strip()
+
     # Only FABRIC tokens with this "scope" claim are accepted ('' = any).
     # 'service' tokens can only identify the user; 'resource' tokens can create slices.
     REQUIRED_TOKEN_SCOPE = os.environ.get('PORTAL_REQUIRED_TOKEN_SCOPE', 'service').strip()
 
-    # Service nodes must live inside this network (FABnetv6)
-    SERVICE_NODE_NETWORK = os.environ.get('PORTAL_SERVICE_NODE_NETWORK', '2602:fcfb::/40')
+    # Service nodes must live inside one of these networks, separated by commas:
+    # FABnetv6 and FABNetv4. Keep it the same as the gateway's GATEWAY_ALLOWED_TARGETS.
+    SERVICE_NODE_NETWORK = os.environ.get('PORTAL_SERVICE_NODE_NETWORK', '2602:fcfb::/40,10.128.0.0/10')
 
     # The gateway that relays widget calls onto FABnetv6
     GATEWAY_URL = os.environ.get('GATEWAY_URL', '').rstrip('/')

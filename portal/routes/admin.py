@@ -33,10 +33,38 @@ def admin_dashboard():
         'admin.html',
         users=users,
         services=services,
+        pending=[svc for svc in services if svc.status == 'pending'],
         active=health.statuses(current_app._get_current_object(), services),
         recent_auth=recent_auth,
         recent_usage=recent_usage
     )
+
+
+@admin_bp.route('/admin/services/<service_name>/review', methods=['POST'])
+@admin_required
+def review_service(service_name):
+    """Approve or reject a website link that a project owner asked for."""
+    service = Service.query.filter_by(name=service_name).first_or_404()
+    data = request.json or {}
+    decision = data.get('decision')
+    if decision not in ('approve', 'reject'):
+        return jsonify({"error": "Invalid decision"}), 400
+    if service.auth_mode != 'link':
+        return jsonify({"error": "Only website links are reviewed."}), 400
+    # The decision is about the web address the admin was shown. If the owner
+    # changed it in the meantime, the admin has to look again. Check and change
+    # are one database statement, so an edit arriving at the same moment cannot
+    # slip a different address in between them.
+    query = Service.query.filter_by(id=service.id, auth_mode='link')
+    if decision == 'approve':
+        query = query.filter_by(link_url=data.get('link_url') or '')
+    new_status = 'active' if decision == 'approve' else 'rejected'
+    changed = query.update({'status': new_status}, synchronize_session=False)
+    db.session.commit()
+    if not changed:
+        return jsonify({"error": "The web address was changed after you opened this page. "
+                                 "Reload the page and check the new address."}), 409
+    return jsonify({"ok": True, "status": new_status})
 
 
 @admin_bp.route('/admin/users/<int:user_id>/toggle_active', methods=['POST'])

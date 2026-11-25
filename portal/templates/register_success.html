@@ -1,11 +1,19 @@
 {% extends "base.html" %}
-{% block title %}Service Registered - FABRIC Service Portal{% endblock %}
+{% block title %}Service Registered - FABRIC Service Marketplace{% endblock %}
 {% block content %}
 <div class="row justify-content-center mt-4">
     <div class="col-md-8">
+        {% if service.status == 'pending' %}
+        <div class="alert alert-warning">
+            <h4 class="alert-heading">Request sent for approval</h4>
+            <p>An admin will check the web address of <strong>{{ service.display_name }}</strong>.
+                Once approved, it is listed for members of your service project. Until then only you
+                and the admins can see its page:</p>
+        {% else %}
         <div class="alert alert-success">
             <h4 class="alert-heading">Service Registered Successfully!</h4>
-            <p>Your service <strong>{{ service.name }}</strong> is now available at:</p>
+            <p>Your service <strong>{{ service.display_name }}</strong> is now available at:</p>
+        {% endif %}
             <p>
                 <a href="/available_services/{{ service.name }}" class="alert-link fs-5">
                     /available_services/{{ service.name }}

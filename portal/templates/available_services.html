@@ -1,14 +1,31 @@
 {% extends "base.html" %}
-{% block title %}Available Services - FABRIC Service Portal{% endblock %}
+{% block title %}Available Services - FABRIC Service Marketplace{% endblock %}
 {% block content %}
 <h2 class="mb-4">Available FABRIC Services</h2>
+
+{% if current_user %}
+<div class="alert alert-light border small">
+    {% if service_projects %}
+    Your FABRIC service projects:
+    {% for p in service_projects %}<span class="badge bg-secondary me-1" title="{{ p.uuid }}">{{ p.name }}</span>{% endfor %}
+    <br>You can use the services open to these projects. For the others, request access.
+    {% else %}
+    You are not a member of any FABRIC service project yet. Services on FABRIC nodes are open to
+    members of the service projects their authors allow: open a service to request access.
+    {% endif %}
+</div>
+{% else %}
+<div class="alert alert-light border small">
+    <a href="/login?next=/available_services">Log in</a> to use the services open to your FABRIC service projects.
+</div>
+{% endif %}
 
 {% if services %}
 <div class="row row-cols-1 row-cols-md-3 g-4">
     {% for svc in services %}
     <div class="col">
         <a href="/available_services/{{ svc.name }}" class="text-decoration-none">
-            <div class="card h-100 shadow-sm service-card">
+            <div class="card h-100 shadow-sm service-card{% if svc.id not in usable %} service-card-locked{% endif %}">
                 <div class="card-img-top d-flex align-items-center justify-content-center"
                      style="height: 120px; background-color: {{ svc.icon_color }}20;">
                     <div class="rounded-circle d-flex align-items-center justify-content-center"
@@ -19,7 +36,7 @@
                     </div>
                 </div>
                 <div class="card-body">
-                    <h5 class="card-title text-dark">{{ svc.name }}</h5>
+                    <h5 class="card-title text-dark">{{ svc.display_name }}</h5>
                     <p class="card-text text-muted small">
                         {{ svc.description[:100] }}{% if svc.description|length > 100 %}...{% endif %}
                     </p>
@@ -27,6 +44,13 @@
                 <div class="card-footer bg-transparent d-flex justify-content-between align-items-center">
                     <small class="text-muted">by {{ svc.owner.username }}</small>
                     {% if svc.auth_mode == 'link' %}<span class="badge bg-info text-dark">Website link</span>{% endif %}
+                    {% if svc.id not in usable %}
+                        {% if current_user %}
+                        <span class="badge bg-warning text-dark" title="You are not a member of this service's FABRIC service project">Request access</span>
+                        {% else %}
+                        <span class="badge bg-light text-dark border">Log in to use</span>
+                        {% endif %}
+                    {% endif %}
                     {% if active[svc.id] %}
                         <span class="badge bg-success">Active</span>
                     {% elif active[svc.id] is not none %}
@@ -40,8 +64,7 @@
 </div>
 {% else %}
 <div class="text-center mt-5">
-    <p class="text-muted fs-5">No services registered yet.</p>
-    <a href="/login" class="btn btn-primary mt-2">Register the First Service</a>
+    <p class="text-muted fs-5">No services to show.</p>
 </div>
 {% endif %}
 {% endblock %}

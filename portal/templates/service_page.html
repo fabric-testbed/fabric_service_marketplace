@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}{{ service.name }} - FABRIC Service{% endblock %}
+{% block title %}{{ service.display_name }} - FABRIC Service{% endblock %}
 {% block content %}
 <div class="row justify-content-center">
     <div class="col-md-8">
-        <h2>{{ service.name }}
+        <h2>{{ service.display_name }}
             {% if active %}<span class="badge bg-success fs-6 align-middle">Active</span>
             {% elif active is not none %}<span class="badge bg-secondary fs-6 align-middle">Inactive</span>{% endif %}
         </h2>
@@ -12,17 +12,26 @@
             This service's app is not running right now (checked every minute). Please try again later.
         </div>
         {% endif %}
+        {% if service.status == 'pending' %}
+        <div class="alert alert-warning py-2 small">
+            Waiting for an admin's approval. Only its owner and admins can see this page; it is not listed yet.
+        </div>
+        {% elif service.status == 'rejected' %}
+        <div class="alert alert-danger py-2 small">
+            An admin did not approve this service's web address. Its owner can change it to ask again.
+        </div>
+        {% endif %}
         <p class="text-muted">{{ service.description }}</p>
         <p class="small text-muted">by {{ service.owner.username }}</p>
 
-        {% if is_link %}
+        {% if is_link and authenticated %}
         <div class="card mt-4">
             <div class="card-body p-4">
                 <p class="text-muted mb-3">
                     This service is hosted on its own website and has its own login.
                 </p>
                 <a class="btn btn-primary" href="{{ service.link_url }}" target="_blank" rel="noopener">
-                    Open {{ service.name }} &#8599;
+                    Open {{ service.display_name }} &#8599;
                 </a>
                 <div class="small text-muted mt-2"><code>{{ service.link_url }}</code></div>
             </div>
@@ -31,14 +40,42 @@
         {% if denied %}
         <div class="alert alert-warning mt-4">
             You are logged in as <strong>{{ current_user.name }}</strong>, but you are not a
-            member of any FABRIC project allowed to use this service.
+            member of this service's FABRIC service project{% if project_links and project_links[0].name %},
+            <strong>{{ project_links[0].name }}</strong>{% endif %}.
+        </div>
+        <div class="card mt-3">
+            <div class="card-body p-4">
+                <h5 class="card-title">Request access</h5>
+                <p class="text-muted">
+                    Ask to join the service's project on the FABRIC portal.
+                    Once the project's owner has added you, log out and sign in again.
+                    {% if owner_mailto %}You can also email the service's owner: the button opens
+                    your own mail program with the request filled in.{% endif %}
+                    {% if access_help_url %}For other questions, ask on the FABRIC forum.{% endif %}
+                </p>
+                {% for p in project_links %}
+                <a class="btn btn-outline-primary btn-sm me-2 mb-2" href="{{ p.url }}" target="_blank" rel="noopener">
+                    {% if p.name %}Request to join {{ p.name }}{% else %}Request to join project <code>{{ p.uuid }}</code>{% endif %} &#8599;
+                </a>
+                {% endfor %}
+                {% if owner_mailto %}
+                <a class="btn btn-outline-secondary btn-sm me-2 mb-2" href="{{ owner_mailto }}">
+                    Email the service owner &#9993;
+                </a>
+                {% endif %}
+                {% if access_help_url %}
+                <a class="btn btn-outline-secondary btn-sm me-2 mb-2" href="{{ access_help_url }}" target="_blank" rel="noopener">
+                    Ask on the FABRIC forum &#8599;
+                </a>
+                {% endif %}
+            </div>
         </div>
         {% else %}
         <div class="card mt-4">
             <div class="card-body p-4">
                 <h5 class="card-title">Log in to use this service</h5>
                 <p class="text-muted">
-                    You need to be a member of one of the service's allowed FABRIC projects.
+                    You need to be a member of the service's FABRIC service project.
                 </p>
                 <a class="btn btn-primary w-100"
                    href="/login?next={{ ('/available_services/' ~ service.name)|urlencode }}">Log in</a>

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ 'Edit Service' if edit_mode else 'Register Service' }} - FABRIC Service Portal{% endblock %}
+{% block title %}{{ 'Edit Service' if edit_mode else 'Register Service' }} - FABRIC Service Marketplace{% endblock %}
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 {% endblock %}
@@ -9,17 +9,17 @@
 
 <div class="row">
     <div class="col-12">
-        <!-- Access mode. Only admins can add website links, so other authors don't see
-             this choice; the server enforces it too. -->
-        <div class="card mb-3{% if not current_user or current_user.role != 'admin' %} d-none{% endif %}">
-            <div class="card-header"><strong>How do users get access?</strong></div>
+        <!-- What kind of service: an app the portal calls on the author's nodes, or a
+             link to a website that already exists (listed once an admin approved it). -->
+        <div class="card mb-3">
+            <div class="card-header"><strong>What kind of service is it?</strong></div>
             <div class="card-body">
                 <div class="form-check mb-2">
                     <input class="form-check-input" type="radio" name="auth-mode" id="mode-fabric_token" value="fabric_token" checked>
                     <label class="form-check-label" for="mode-fabric_token">
                         <strong>App on my FABRIC nodes</strong>
                         <div class="form-text mt-0">You run a small web app on your nodes (the generated Flask app below
-                            is a starting point). The portal logs users in and checks your allowed projects before it passes
+                            is a starting point). The portal logs users in and checks they are in your service project before it passes
                             their requests on. Checking each user's FABRIC token in your app is optional.</div>
                     </label>
                 </div>
@@ -27,12 +27,14 @@
                     <input class="form-check-input" type="radio" name="auth-mode" id="mode-link" value="link">
                     <label class="form-check-label" for="mode-link">
                         <strong>Website link</strong>
-                        <div class="form-text mt-0">Admins only. Already running on its own website with its own login.
-                            The portal lists it and links to it; nothing to install.</div>
+                        <div class="form-text mt-0">Already running, with its own web page and its own login or
+                            tokens; nothing to install. The portal sends members of your service project to that
+                            page. An admin checks the web address first: your request is listed
+                            once it is approved on the Admin page.</div>
                     </label>
                 </div>
                 <div class="mt-3 d-none" id="link-url-section">
-                    <label class="form-label">Service URL</label>
+                    <label class="form-label" for="svc-link-url">Web address of the service</label>
                     <input type="url" id="svc-link-url" class="form-control" placeholder="https://my-service.example.org">
                 </div>
             </div>
@@ -44,11 +46,17 @@
             <div class="card-body">
                 <div class="row g-3">
                     <div class="col-md-6">
-                        <label class="form-label">Service Name</label>
-                        <input type="text" id="svc-name" class="form-control"
-                               placeholder="Your service name"
-                               pattern="[a-z0-9][a-z0-9\-]{1,48}[a-z0-9]">
-                        <div class="form-text">(Lowercase letters, numbers, hyphens. 3-50 chars.)</div>
+                        <label class="form-label" for="svc-title">Service Name</label>
+                        <input type="text" id="svc-title" class="form-control" maxlength="80"
+                               placeholder="e.g. FABRIC LLM Service">
+                        <label class="form-label mt-2 small text-muted" for="svc-name">Address of its page</label>
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text">/available_services/</span>
+                            <input type="text" id="svc-name" class="form-control" maxlength="50"
+                                   placeholder="fabric-llm-service">
+                            </div>
+                        <div class="form-text">Filled in from the name. Lowercase letters, numbers and
+                            hyphens; it cannot be changed later.</div>
                     </div>
                     <div class="col-md-6">
                         <label class="form-label">Description</label>
@@ -56,17 +64,32 @@
                                placeholder="Brief description of your service">
                     </div>
                     <div class="col-md-10" id="projects-section">
-                        <label class="form-label">Allowed Projects (users in these projects can use this service)</label>
-                        <div id="projects-list"></div>
-                        <button type="button" id="add-project-btn" class="btn btn-outline-secondary btn-sm mt-2">
-                            + Add Project
-                        </button>
-                        <div class="form-text">Add one or more FABRIC project UUIDs.</div>
+                        <label class="form-label" for="svc-project">Service Project</label>
+                        <select id="svc-project" class="form-select"></select>
+                        <div class="form-text">
+                            The FABRIC <strong>service project</strong> this service belongs to. Its members
+                            can use the service; everyone else sees it with "Request access". Only the
+                            service projects you own are listed.
+                        </div>
+                        <div id="svc-project-note" class="form-text text-danger d-none"></div>
                     </div>
                     <div class="col-md-2">
                         <label class="form-label">Icon Color</label>
                         <input type="color" id="svc-color" class="form-control form-control-color"
                                value="#3B82F6">
+                    </div>
+                    <div class="col-12">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="svc-allow-email">
+                            <label class="form-check-label" for="svc-allow-email">
+                                Let people who cannot use this service yet email me to ask for access
+                            </label>
+                            <div class="form-text mt-0">Adds an "Email the service owner" button to the service's
+                                Request access box, for logged-in users. It opens their own mail program with
+                                your FABRIC email address filled in, so they will see
+                                that address. Without it they can still ask to join the project, or ask on the
+                                FABRIC forum.</div>
+                        </div>
                     </div>
                     <div class="col-12" id="nodes-section">
                         <label class="form-label">Slice Nodes</label>
@@ -124,5 +147,9 @@
     window.SERVICE_DATA = null;
 </script>
 {% endif %}
+<script>
+    // The service projects the user owns: offered by name, saved by ID
+    window.MY_SERVICE_PROJECTS = {{ (current_user.service_projects if current_user else []) | default([], true) | selectattr('owner') | list | tojson }};
+</script>
 <script src="{{ url_for('static', filename='js/canvas.js') }}"></script>
 {% endblock %}

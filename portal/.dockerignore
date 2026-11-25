@@ -1,0 +1,26 @@
+# Local configuration and data: mounted or passed in at run time, never built into the image
+portal.env
+# ... including copies and backups of it (portal.env.bak, portal.env.before-docker, ...)
+portal.env*
+*.env
+*.bak
+*.orig
+instance/
+.secret_key
+*.crt
+*.key
+*.pem
+ssl/
+vouch/config
+# Not needed in the image
+venv/
+.venv/
+__pycache__/
+*.pyc
+nginx/
+vouch/
+deploy.sh
+restart.sh
+Dockerfile
+docker-compose.yml
+.dockerignore

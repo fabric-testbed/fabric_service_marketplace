@@ -18,6 +18,9 @@ def _upgrade_database():
     new_columns = {
         'auth_mode': "VARCHAR NOT NULL DEFAULT 'fabric_token'",
         'link_url': 'VARCHAR',
+        'title': 'VARCHAR',
+        'access_project_name': 'VARCHAR',
+        'allow_owner_email': 'BOOLEAN NOT NULL DEFAULT 0',
     }
     with db.engine.begin() as conn:
         for name, ddl in new_columns.items():
@@ -75,7 +78,8 @@ def create_app():
     # Make session info available to all templates
     @app.context_processor
     def inject_user():
-        return {'current_user': session.get('portal_user')}
+        return {'current_user': session.get('portal_user'),
+                'access_help_url': app.config['ACCESS_HELP_URL']}
 
     # Create tables, and add columns introduced after a database was created
     with app.app_context():

@@ -13,8 +13,21 @@ def can_register(identity_project_ids, role):
     return role == 'admin' or current_app.config['PORTAL_PROJECT_ID'] in identity_project_ids
 
 
+def service_project_for(user, allowed_project_ids):
+    """
+    The service project that lets `user` use a service: the first of the
+    service's allowed projects that is one of the user's service projects, or None.
+    Only service projects count, because only they give a token (scope "service")
+    that is safe to pass to the service's nodes.
+    """
+    if not user:
+        return None
+    mine = {p['uuid'] for p in user.get('service_projects', [])}
+    return next((p for p in allowed_project_ids if p in mine), None)
+
+
 def can_use_service(user, allowed_project_ids):
-    return bool(user) and bool(set(user.get('project_ids', [])) & set(allowed_project_ids))
+    return service_project_for(user, allowed_project_ids) is not None
 
 
 def safe_next(target, default):
@@ -33,6 +46,17 @@ def author_page(f):
             return redirect(url_for('auth.login_page', next=request.path))
         if not user.get('can_register'):
             return render_template('not_author.html'), 403
+        # A session from before project ownership was recorded: read the user's
+        # projects again (no new login needed while the FABRIC cookie is valid)
+        # Tried once only: the old entries are first marked "not an owner", so if
+        # reading the projects fails the user is not sent round again.
+        stale = [p for p in user.get('service_projects', []) if 'owner' not in p]
+        if stale:
+            for p in stale:
+                p['owner'] = False
+            session.modified = True
+            if user.get('signed_in_with') == 'fabric':
+                return redirect(url_for('auth.fabric_login_start', next=request.path))
         return f(*args, **kwargs)
     return decorated
 

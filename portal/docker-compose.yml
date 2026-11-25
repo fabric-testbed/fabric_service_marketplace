@@ -1,0 +1,54 @@
+# FABRIC Service Marketplace: the portal in Docker, laid out like the other
+# FABRIC services (Nginx in front, the app, vouch-proxy for the FABRIC sign-in).
+# Steps: docs/SETUP.md, "Portal in Docker".
+#
+# Needs, in this folder:
+#   portal.env            copy of portal.env.example, filled in
+#   ssl/fullchain.pem     the portal's TLS certificate (with its chain)
+#   ssl/privkey.pem       and its key
+#   vouch/config          copy of vouch/config.example, filled in
+#   instance/             created on first start: database, secret key;
+#                         put the gateway's certificate here as instance/gateway.crt
+services:
+  nginx:
+    image: library/nginx:1
+    container_name: marketplace-nginx
+    networks:
+      - frontend
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl/fullchain.pem:/etc/ssl/public.pem:ro
+      - ./ssl/privkey.pem:/etc/ssl/private.pem:ro
+    depends_on:
+      - portal
+    restart: always
+
+  portal:
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    image: fabrictestbed/service-marketplace-portal:latest
+    container_name: marketplace-portal
+    networks:
+      - frontend
+    env_file:
+      - ./portal.env
+    volumes:
+      - ./instance:/usr/src/app/instance
+    restart: always
+
+  vouch-proxy:
+    image: fabrictestbed/vouch-proxy:0.27.1
+    container_name: marketplace-vouch-proxy
+    networks:
+      - frontend
+    volumes:
+      - ./vouch:/config
+    restart: always
+
+networks:
+  frontend:

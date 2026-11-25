@@ -1,9 +1,18 @@
 # Local configuration: copy the *.env.example files and fill them in
 portal/portal.env
 gateway/gateway.env
+# ... and copies or backups of them (they hold the same secrets)
+portal/portal.env.*
+gateway/gateway.env.*
+!portal/portal.env.example
+!gateway/gateway.env.example
+portal/vouch/config
+portal/ssl/
+*.pem
 
 # Created on the server by deploy.sh / the portal
 venv/
+.venv/
 portal/instance/
 portal/.secret_key
 *.db
