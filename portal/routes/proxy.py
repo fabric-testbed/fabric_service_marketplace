@@ -31,11 +31,8 @@ def _service_token(service):
     if not project_id:
         return None, "You are not a member of a FABRIC service project allowed to use this service."
     if user.get('signed_in_with') == 'fabric':
-        try:
-            return credmgr_client.service_token(user, project_id, vouch_cookies(request.cookies),
-                                                service.name), None
-        except credmgr_client.TokenError as e:
-            return None, str(e)
+        return credmgr_client.service_token(user, project_id, vouch_cookies(request.cookies),
+                                            service.name)
     # Logged in on the token test page: pass on the token that was pasted
     token = token_store.get()
     if not token:
