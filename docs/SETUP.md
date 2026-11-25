@@ -407,7 +407,10 @@ then `sudo bash restart.sh`.
   **Request access**; the service's page links to its project on the
   FABRIC portal (`FABRIC_PORTAL_URL`), where the user asks to join. After being
   added they log out and sign in again.
-  A second button, "Ask on the FABRIC forum", goes to `PORTAL_ACCESS_HELP_URL`
+  "Email the service owner" opens the user's own mail program with a request
+  to the owner filled in (the portal sends no mail; the button is shown to
+  logged-in users only, and only if the owner has an email address in FABRIC).
+  A third button, "Ask on the FABRIC forum", goes to `PORTAL_ACCESS_HELP_URL`
   (default: the FABRIC forum; empty removes the button).
 - Logging out of the portal also ends the FABRIC sign-in (clears the login
   cookie), like the Credential Manager's logout. To leave it alone, set

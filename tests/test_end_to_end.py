@@ -1423,6 +1423,15 @@ def test_request_access_names_the_project(portal, service):
     page = outsider.get('/available_services/named-project-svc').get_data(as_text=True)
     assert 'Request to join Service - Echo' in page
     assert f'/projects/{CONSUMER_PROJECT}' in page
+    # The owner's address, in a link for the user's own mail program (the portal sends nothing)
+    assert 'href="mailto:author%40example.org?subject=Access%20to%20named-project-svc' in page
+    assert 'Service%20-%20Echo' in page
+    assert 'TestOutsider%20%28outsider%40example.org%29' in page
+    # Not for visitors, and not for people who can use the service
+    assert 'mailto:' not in portal.test_client().get('/available_services/named-project-svc').get_data(as_text=True)
+    member = portal.test_client()
+    login(member, 'TestConsumer')
+    assert 'mailto:' not in member.get('/available_services/named-project-svc').get_data(as_text=True)
     # A second way to ask: the forum (PORTAL_ACCESS_HELP_URL)
     assert 'Ask on the FABRIC forum' in page and portal.config['ACCESS_HELP_URL'] in page
     before = portal.config['ACCESS_HELP_URL']

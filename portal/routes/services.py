@@ -1,4 +1,5 @@
 import json
+from urllib.parse import quote
 
 from flask import Blueprint, request, session, render_template, current_app, abort
 
@@ -33,6 +34,24 @@ def _is_admin(user):
     """Checked against the database, like the admin pages, not the session."""
     row = User.query.get(user['id'])
     return bool(row and row.role == 'admin')
+
+
+def _owner_mailto(service, user):
+    """A mailto: link that opens the user's own mail program with a request to the
+    service's owner filled in. The portal sends no mail itself. None if the owner
+    has no email address. Only given to logged-in users who cannot use the service."""
+    owner = service.owner
+    if not user or not owner or not owner.email:
+        return None
+    project = service.access_project_name or service.access_project_id or ''
+    me = User.query.get(user['id'])   # the session does not hold the email address
+    subject = f"Access to {service.display_name} on the FABRIC Service Marketplace"
+    body = (f"Hello {owner.username},\n\n"
+            f"I would like to use {service.display_name}. "
+            f"Could you add me to its FABRIC service project ({project})?\n\n"
+            f"My FABRIC account: {user.get('name', '')}{f' ({me.email})' if me and me.email else ''}\n\n"
+            "Thank you")
+    return f"mailto:{quote(owner.email)}?subject={quote(subject)}&body={quote(body)}"
 
 
 def _open_to_everyone(service):
@@ -80,7 +99,8 @@ def service_page(service_name):
                    or service.status != 'active')
         return render_template('service_page.html', service=service, is_link=True, active=None,
                                authenticated=allowed, denied=bool(user) and not allowed,
-                               project_links=[] if allowed else _project_links(service))
+                               project_links=[] if allowed else _project_links(service),
+                               owner_mailto=None if allowed else _owner_mailto(service, user))
 
     session_key = f'auth_{service_name}'
     user = current_user()
@@ -113,6 +133,7 @@ def service_page(service_name):
         authenticated=authenticated,
         denied=denied,
         project_links=_project_links(service) if denied else [],
+        owner_mailto=_owner_mailto(service, user) if denied else None,
         consumer_name=consumer_name,
         nodes=nodes
     )
