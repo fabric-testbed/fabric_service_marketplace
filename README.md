@@ -1,4 +1,4 @@
-# FABRIC Service Portal
+# FABRIC Service Marketplace
 
 Lets FABRIC researchers publish services, and lets other FABRIC users find and
 use them. A service either runs on the author's slice nodes (reached over
@@ -43,7 +43,7 @@ Website links don't use the gateway: the portal just links to them.
 
 | Folder | Runs on | Config file | Deploy |
 |---|---|---|---|
-| `portal/` | VM with a public IP | `portal/portal.env` | `sudo bash deploy.sh` |
+| `portal/` | VM with a public IP | `portal/portal.env` | `sudo bash deploy.sh`, or `docker compose up -d --build` ([Portal in Docker](docs/SETUP.md#portal-in-docker)) |
 | `gateway/` | FABRIC VM: FABNetv4Ext public IP + FABnetv6 | `gateway/gateway.env` | `sudo bash deploy.sh` |
 | `service_node/` | Service authors' slice VMs | env vars (see the example) | `python3 example_app.py` (or the generated `app.py`) |
 | `tests/` | Your laptop | — | `python -m pytest tests` |
@@ -74,9 +74,9 @@ link; other authors don't see that option, and the portal refuses it from them.
 | | **App on my FABRIC nodes** (`fabric_token`) | **Website link** (`link`, admins only) |
 |---|---|---|
 | Use when | The service runs on the author's slice VMs | Already a website with its own login |
-| Who checks the user | The portal (login and project membership); optionally also the node (checks the token with FABRIC, on by default) | The website itself |
+| Who checks the user | The portal (login and service project membership); optionally also the node (checks the token with FABRIC, on by default) | The website itself |
 | Node receives | `Authorization: Bearer <user's FABRIC service token>` + `X-Fabric-User-Uuid/Name` | — (not proxied) |
-| Registered by | any author: allowed projects, FABnetv6 nodes, widget | an admin: a URL |
+| Registered by | any author: allowed service projects, FABnetv6 nodes, widget | an admin: a URL |
 | Author runs | the generated `app.py` (built from the form), `service_node/example_app.py`, or their own existing API (any path) | nothing |
 | Usable without the portal | Yes, from any VM on FABnetv6: `curl -H "Authorization: Bearer $FABRIC_TOKEN" http://[node]:8080/...` | Yes, it's a website |
 | Health check | `GET /health` on the node, no token needed | — |
@@ -91,51 +91,53 @@ tells it reliably who each caller is. See [docs/SETUP.md, section 3](docs/SETUP.
 
 ## Login and tokens
 
-However a user logs in, the login code's only job is to obtain their FABRIC
-token and call one function. The portal does the rest:
+Users click **Sign in with FABRIC**. It is the same login as FABRIC's
+Credential Manager: vouch-proxy sends the browser to CILogon and sets the
+FABRIC login cookie. The portal does the rest:
 
 ```
-any login method ──► login_with_fabric_token(token)
-                       ├─ only "service" tokens accepted (see below)
-                       ├─ FABRIC user service: who is this? ALL their projects (from their roles)
-                       ├─ in PORTAL_PROJECT_ID (portal.env)? → may register services
-                       ├─ in a service's allowed projects?   → may use it
-                       ├─ token kept server-side             → passed to service nodes
-                       └─ session started
+Sign in with FABRIC ──► FABRIC login cookie (vouch-proxy + CILogon)
+                          ├─ FABRIC user service: who is this? their projects
+                          ├─ in PORTAL_PROJECT_ID (portal.env)?    → may register services
+                          ├─ their active SERVICE projects         → the services they see and may use
+                          └─ session started
+
+Using a service      ──► the service project that gives access to it
+                          ├─ Credential Manager: a service token for that project
+                          │    (kept for the session, one per project)
+                          └─ passed to the service's nodes
 ```
 
-The project list comes from the user's roles in FABRIC, not from the token's
-contents, so any valid token gives the full list.
+**Only service projects give access to services.** FABRIC tokens carry a
+`scope` claim: `resource` tokens can create and delete slices as the user,
+`service` tokens only identify them, and FABRIC issues `service` tokens for
+service projects only. Because the portal passes the user's token to service
+nodes, it only ever passes a `service` token. So a service's allowed projects
+must be service projects. Every registered service is listed, but a user can
+only use the ones open to a service project they are a member of; the others
+are greyed out with **Request access**, which links to the project's page on
+the FABRIC portal.
 
-**Only FABRIC _service_ tokens are accepted.** FABRIC tokens carry a `scope`
-claim: `resource` tokens can create and delete slices as the user, `service`
-tokens only identify them. Because the portal passes the user's token to
-service nodes, it refuses any token whose scope isn't
-`PORTAL_REQUIRED_TOKEN_SCOPE` (default `service`). With the token check on, the
-generated node apps refuse non-service tokens too, so users calling a node directly from their VMs
-also need a service token (not the `resource` token a JupyterHub notebook uses).
+With the token check on, the generated node apps refuse non-service tokens
+too, so users calling a node directly from their VMs also need a service token
+(not the `resource` token a JupyterHub notebook uses).
 
-The token is kept server-side (`user_tokens` table, deleted at logout).
+Tokens are kept server-side (`user_tokens` and `service_tokens` tables, deleted
+at logout). The login cookie goes only to FABRIC's user service and Credential
+Manager, never to a service node.
 
-### Logging in today: the token test page
+Setting up the sign-in (vouch-proxy, `PORTAL_LOGIN_URL`):
+[docs/SETUP.md, section 4](docs/SETUP.md#4-sign-in-with-fabric). Until then the
+button is disabled.
 
-The login page has a **Sign in with FABRIC** button for the automated login
-(e.g. CILogon), which is still to be added: it goes to `PORTAL_LOGIN_URL` and is
-disabled until that is set.
+### For testing: the token test page
 
-Until then, use `https://<portal>/token_test` (linked from the login page as
-"For testing"). Paste a FABRIC service token from the FABRIC portal: it shows
-the user, **all** their projects (the portal project is marked), whether they
-may register services, and which services they can use, without saving
-anything. Then click **Log in with this token**.
-
-### Adding the automated login (e.g. CILogon)
-
-One function to call: once the login flow has the user's FABRIC **service**
-token, call `login_with_fabric_token(token)` in `portal/routes/auth.py`, then set
-`PORTAL_LOGIN_URL` in `portal.env`. It does everything else (scope check,
-FABRIC lookup, projects, permissions, storing the token, session). Step-by-step
-with example code: [docs/SETUP.md, section 4](docs/SETUP.md#4-adding-the-automated-login-eg-cilogon).
+`https://<portal>/token_test` (linked from the login page as "For testing")
+works without the sign-in. Paste a FABRIC service token from the FABRIC portal:
+it shows the user, **all** their projects (the portal project is marked), their
+service projects, whether they may register services, and which services they
+can use, without saving anything. Then click **Log in with this token**; that
+token is what service nodes receive.
 
 ## Running the tests
 

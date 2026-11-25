@@ -1,4 +1,4 @@
-# Deploying the FABRIC Service Portal
+# Deploying the FABRIC Service Marketplace
 
 Three kinds of machine are involved. Set them up in this order:
 
@@ -143,6 +143,8 @@ portal$ nano portal.env
 portal$ sudo bash deploy.sh
 ```
 
+(To run the portal as Docker containers instead, see [Portal in Docker](#portal-in-docker).)
+
 It installs Nginx and a `fabric-portal` systemd service, makes a self-signed
 TLS certificate, and ends by checking the connection to the gateway.
 
@@ -190,7 +192,8 @@ redone. To avoid that, keep `gateway.crt` and `gateway.key` and put them back in
 Go to `https://<portal public IP>/` and accept the browser's certificate
 warning (the certificate is self-signed; for a real hostname use certbot).
 
-To log in, click **Login**, then **For testing: log in with a FABRIC service
+**Sign in with FABRIC** is set up separately, in [section 4](#4-sign-in-with-fabric).
+Before that, click **Login**, then **For testing: log in with a FABRIC service
 token**. Paste a **service** token from the FABRIC portal (resource tokens are
 refused), click **Check token**, then **Log in with this token**.
 
@@ -203,7 +206,7 @@ Check with `curl -sI https://uis.fabric-testbed.net | head -1` on the portal.
 
 ### App on my FABRIC nodes
 
-The author fills in the registration form (allowed projects, nodes, and the
+The author fills in the registration form (allowed FABRIC service projects, nodes, and the
 widget: its endpoint, method, input and output fields). The portal then shows a
 Flask app built from that form. On each VM in the author's slice, with FABnetv6
 attached:
@@ -273,97 +276,106 @@ Nothing to install.
 
 ---
 
-## 4. Adding the automated login (e.g. CILogon)
+## 4. Sign in with FABRIC
 
-Today users log in on `/token_test` by pasting a FABRIC service token. For
-production, the **Sign in with FABRIC** button on `/login` should start an
-automated login instead. The portal is built so that this only needs:
+The **Sign in with FABRIC** button on `/login` uses the same login as FABRIC's
+Credential Manager: **vouch-proxy** sends the browser to CILogon and sets the
+FABRIC login cookie. The portal then asks FABRIC who the cookie belongs to, and
+later asks the Credential Manager for the service tokens it passes to service
+nodes. The button stays disabled until the steps below are done; until then
+log in on `/token_test`.
 
-| Change | Where |
-|---|---|
-| Add two routes: one that starts the login, one that receives the result | `portal/routes/auth.py` |
-| Point the Sign in button at the start route | `PORTAL_LOGIN_URL` in `portal.env` |
-| Register the callback URL with the identity provider | e.g. `https://<portal>/auth/fabric/callback` |
-
-**Nothing else changes.** The one function to call is
-`login_with_fabric_token(token)` in `portal/routes/auth.py`. Given the user's
-FABRIC service token, it already does everything else:
-
-- refuses tokens that aren't `service` scope
-- checks the token with FABRIC (`FABRIC_UIS_URL`) and gets the user and **all** their projects
-- decides whether they may register services (`PORTAL_PROJECT_ID`) and which services they may use
-- stores the token server-side, for passing to service nodes
-- starts the portal session
-
-It returns `(user, None)` on success or `(None, error_message)` on failure.
-
-### What the login flow must produce
-
-A **FABRIC service token**, the same kind users paste on `/token_test`. A
-token from a CILogon client of your own is not enough: it has no FABRIC
-`scope` or projects, so `login_with_fabric_token` rejects it. After CILogon,
-the flow has to get the user's service token from FABRIC's Credential Manager
-(ask the FABRIC team for the supported way to do this for a portal).
-
-### Example
-
-Add to `portal/routes/auth.py` (also add `import secrets` and
-`from urllib.parse import quote` at the top, and `url_for` to the
-`from flask import ...` line). The two `...` lines are the parts specific to
-the identity provider:
-
-```python
-@auth_bp.route('/auth/fabric/start')
-def fabric_login_start():
-    # Remember where to return to, and a random state to check on the way back
-    session['login_state'] = secrets.token_urlsafe(16)
-    session['login_next'] = safe_next(request.args.get('next'), '')
-    callback = request.url_root.rstrip('/') + url_for('auth.fabric_login_callback')
-    login_url = ...  # the identity provider's login URL, with `callback` and session['login_state']
-    return redirect(login_url)
-
-
-@auth_bp.route('/auth/fabric/callback')
-def fabric_login_callback():
-    # Read these BEFORE logging in: login_with_fabric_token() clears the session
-    expected_state = session.pop('login_state', None)
-    next_url = session.pop('login_next', '')
-    if not expected_state or request.args.get('state') != expected_state:
-        return redirect('/login?error=' + quote('Login expired, please try again'))
-
-    fabric_token = ...  # exchange request.args['code'] for the user's FABRIC service token
-
-    user, error = login_with_fabric_token(fabric_token)
-    if error:
-        return redirect('/login?error=' + quote(error))
-    return redirect(next_url or _default_landing(user))  # back to the page they came from
+```
+Browser ─► /auth/fabric/start ─► /vouch/login ─► CILogon ─► /auth (vouch sets the cookie)
+        ─► /auth/fabric/callback ─► logged in
 ```
 
-Then in `portal.env`:
+### What you need
+
+| | |
+|---|---|
+| Docker on the portal VM | to run vouch-proxy |
+| A CILogon client | callback URL `https://<portal hostname>/auth` (register at https://cilogon.org/oauth2/register) |
+| FABRIC's vouch settings | `jwt.secret`, cookie name and cookie domain of the FABRIC deployment (from the FABRIC team) |
+| A hostname inside the cookie's domain | e.g. `something.fabric-testbed.net`; an IP address does not work |
+
+**Why FABRIC's vouch settings:** the portal does not check the login cookie. It
+passes it to FABRIC's user service and Credential Manager, and they only accept
+a cookie signed with their own secret. A different secret under the same cookie
+name would also overwrite users' FABRIC login cookie with one FABRIC's own
+sites cannot read.
+
+### 4a. Start vouch-proxy
+
+```bash
+portal$ cd ~/fabric_service_marketplace/portal/vouch
+portal$ cp config.example config
+portal$ nano config            # fill in every CHANGE_ME value
+portal$ chmod 600 config
+portal$ docker compose up -d
+portal$ docker logs portal-vouch-proxy | tail -5
+```
+
+(With [Portal in Docker](#portal-in-docker), vouch-proxy is part of
+`portal/docker-compose.yml`: fill in `vouch/config` and run
+`docker compose restart vouch-proxy` in `portal/` instead.)
+
+It listens on `127.0.0.1:9090` only. The portal's Nginx forwards `/auth`,
+`/vouch/login` and `/vouch/logout` to it; `deploy.sh` installs that Nginx
+config, so run `sudo bash deploy.sh` once if the portal was deployed with an
+older version.
+
+### 4b. Turn the button on
+
+In `portal.env`:
 
 ```
 PORTAL_LOGIN_URL=/auth/fabric/start
+# only if they differ from the defaults:
+# PORTAL_VOUCH_COOKIE_NAME=fabric-service
+# FABRIC_CREDMGR_URL=https://cm.fabric-testbed.net
 ```
 
-and `sudo bash restart.sh`. The login page's **Sign in with FABRIC** button
-becomes active and goes to `/auth/fabric/start?next=<page to return to>`.
+then `sudo bash restart.sh`.
 
-Put any client ID or secret the identity provider needs in `portal.env`, and
-read it in `portal/config.py` like the other settings.
+### 4c. Check it
 
-### Checking it
+1. Open `https://<portal>/login` and click **Sign in with FABRIC**. After
+   CILogon you should land on the portal, logged in.
+2. **Available Services** shows your FABRIC service projects at the top. The
+   services open to them are usable; the rest are greyed out.
+3. Open a service and use its widget. The node receives a service token for
+   the service project that gives you access; that token also appears on the
+   Credential Manager's token page with the comment `FABRIC Service Marketplace: <service>`.
 
-- `tests/test_end_to_end.py::test_login_with_fabric_token` checks the contract
-  above (full project list, permissions, session, stored token).
-- After logging in, open a service you are allowed to use: its widget should
-  work, which means your token reached the service node.
-- `/token_test` and its "Log in with this token" button keep working alongside
-  the new login, which is useful for testing. To turn them off in production,
-  remove the `/token_test`, `/api/token_test` and `/auth/login` routes from
-  `portal/routes/auth.py` and the "For testing" link from `templates/login.html`.
+| Symptom | Cause |
+|---|---|
+| Back on `/login` with "Your FABRIC sign-in has expired" right after CILogon | vouch's `jwt.secret` or cookie name is not FABRIC's, so FABRIC's user service refuses the cookie |
+| `502` on `/vouch/login` | vouch-proxy is not running (`docker ps`) |
+| vouch shows an error instead of going to CILogon | the portal's hostname is outside `vouch.cookie.domain`, or the CILogon callback URL is not `https://<portal>/auth` |
+| Widget: "FABRIC did not issue a service token for this project" | the Credential Manager refused; see `sudo journalctl -u fabric-portal -n 50` |
+| Widget: "Your FABRIC sign-in has expired" | the login cookie ran out (vouch `maxAge`); log out and sign in again |
 
-If a FABRIC token expires before the portal's 4-hour session, calls to service
-nodes fail until the user logs in again (token refresh is not implemented).
+### Who can use what
+
+- Only FABRIC **service projects** give access to services, because FABRIC
+  issues service tokens for those only. A service's allowed projects must be
+  service projects.
+- Every service is listed. The ones a user cannot use yet are greyed out with
+  **Request access**; the service's page links to its allowed projects on the
+  FABRIC portal (`FABRIC_PORTAL_URL`), where the user asks to join. After being
+  added they log out and sign in again.
+- Logging out of the portal also ends the FABRIC sign-in (clears the login
+  cookie), like the Credential Manager's logout. To leave it alone, set
+  `PORTAL_VOUCH_LOGOUT_URL=` (empty) in `portal.env`.
+- The portal session lasts 4 hours. A service token lasts
+  `PORTAL_SERVICE_TOKEN_HOURS` (default 4) and is requested again when it
+  runs out, as long as the login cookie is still valid.
+
+`/token_test` and its "Log in with this token" button keep working alongside
+the sign-in, which is useful for testing. To turn them off in production,
+remove the `/token_test`, `/api/token_test` and `/auth/login` routes from
+`portal/routes/auth.py` and the "For testing" link from `templates/login.html`.
 
 ---
 
@@ -434,3 +446,59 @@ updated.
 If the portal won't start on Rocky, look for SELinux denials with
 `sudo ausearch -m avc -ts recent`, and check `sudo journalctl -u fabric-portal -n 50`.
 The gateway is only supported on Ubuntu.
+
+---
+
+## Portal in Docker
+
+Instead of `deploy.sh`, the portal can run as containers, laid out like the
+other FABRIC services: Nginx in front, the portal app, and vouch-proxy for the
+FABRIC sign-in. Use one or the other on a machine, not both: they use the
+same ports. The gateway is not part of this; it stays as in section 1.
+
+| Container | Image | Does |
+|---|---|---|
+| `marketplace-nginx` | `nginx:1` | HTTPS on ports 80/443 (`nginx/default.conf`, `nginx/nginx.conf`) |
+| `marketplace-portal` | built from `portal/Dockerfile` | the portal app (Gunicorn, as the user `portal`) |
+| `marketplace-vouch-proxy` | `fabrictestbed/vouch-proxy` | the FABRIC sign-in (section 4) |
+
+Everything is in `portal/`; these files are yours and are not in the repository:
+
+| File | What |
+|---|---|
+| `portal.env` | as in section 2 |
+| `ssl/fullchain.pem`, `ssl/privkey.pem` | the portal's TLS certificate (with its chain) and key |
+| `vouch/config` | copy of `vouch/config.example`, filled in (section 4) |
+| `instance/` | created on first start: the database and the secret key. Put the gateway's certificate here as `instance/gateway.crt` |
+
+```bash
+portal$ cd ~/fabric_service_marketplace/portal
+portal$ cp portal.env.example portal.env && nano portal.env
+portal$ mkdir -p ssl instance        # then put the certificate, key and gateway.crt in place
+portal$ cp vouch/config.example vouch/config && nano vouch/config && chmod 600 vouch/config
+portal$ docker compose up -d --build
+portal$ docker compose ps
+```
+
+In `portal.env`, the gateway's certificate is given by its path inside the
+container: `GATEWAY_TLS_VERIFY=/usr/src/app/instance/gateway.crt`.
+
+The portal starts even while `vouch/config` is not filled in; only **Sign in
+with FABRIC** needs it. Don't also start `vouch/docker-compose.yml`: that one
+is for the `deploy.sh` setup.
+
+| Task | Command (in `portal/`) |
+|---|---|
+| Check the connection to the gateway | `docker compose exec -u portal portal flask check-gateway` |
+| Make someone admin | `docker compose exec -u portal portal flask seed-admin "<FABRIC UUID>"` |
+| Logs | `docker compose logs -f portal` (or `nginx`, `vouch-proxy`) |
+| After changing `portal.env` | `docker compose up -d` |
+| After changing `vouch/config` | `docker compose restart vouch-proxy` |
+| After replacing the certificate | `docker compose restart nginx` |
+| Update the code | `git pull && docker compose up -d --build` |
+
+**Moving from `deploy.sh` to Docker** on the same machine: copy `portal.crt` /
+`portal.key` to `ssl/fullchain.pem` / `ssl/privkey.pem`, copy `.secret_key` and
+`gateway.crt` into `instance/` (the database is already there), change
+`GATEWAY_TLS_VERIFY` as above, then
+`sudo systemctl disable --now fabric-portal nginx` and `docker compose up -d --build`.

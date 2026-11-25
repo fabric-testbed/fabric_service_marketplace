@@ -1,5 +1,6 @@
 import base64
 import json
+import re
 from datetime import datetime
 
 import requests as http_requests
@@ -40,26 +41,86 @@ def check_token_scope(token):
 def fetch_fabric_identity(id_token):
     """
     Validate a FABRIC id_token against FABRIC UIS and look up the user's projects.
-    Returns ({"uuid", "name", "email", "project_ids"}, None) on success
-    or (None, error_string) on failure. Project membership is checked by the caller.
+    Returns ({"uuid", "name", "email", "project_ids", "service_projects"}, None)
+    on success or (None, error_string) on failure.
     """
     scope_error = check_token_scope(id_token)
     if scope_error:
         return None, scope_error
+    return _fetch_identity({"headers": {"Authorization": f"Bearer {id_token}"}},
+                           invalid="Invalid or expired FABRIC token")
 
+
+# A login cookie is a few KB; pieces are about 4 KB each
+MAX_COOKIE_PIECES = 16
+
+
+def vouch_cookies(cookies):
+    """
+    The FABRIC login cookie among `cookies` (a dict, e.g. request.cookies), as
+    {name: value} ready to send to FABRIC, or {} if there is none.
+
+    FABRIC's user service and Credential Manager read one whole cookie. A
+    browser may hold a large one in pieces, so the pieces are joined here:
+    vouch-proxy names them <name>_1of3, <name>_2of3, ...; <name>, <name>_1,
+    <name>_2, ... is accepted too.
+    """
+    name = current_app.config['VOUCH_COOKIE_NAME']
+    if not name:
+        return {}
+
+    # <name>_1of3, <name>_2of3, <name>_3of3
+    # The names come from the browser: at most MAX_COOKIE_PIECES pieces, all
+    # agreeing on how many there are, so a made-up "1of999999999" costs nothing.
+    numbered, totals = {}, set()
+    for key, value in cookies.items():
+        match = re.fullmatch(re.escape(name) + r'_(\d{1,2})of(\d{1,2})', key)
+        if match:
+            numbered[int(match.group(1))] = value
+            totals.add(int(match.group(2)))
+    if numbered:
+        total = totals.pop() if len(totals) == 1 else 0
+        if not 1 <= total <= MAX_COOKIE_PIECES:
+            return {}
+        parts = [numbered.get(i) for i in range(1, total + 1)]
+        return {name: ''.join(parts)} if all(parts) else {}
+
+    # <name> alone, or followed by <name>_1, <name>_2, ...
+    value = cookies.get(name)
+    if not value:
+        return {}
+    for i in range(1, MAX_COOKIE_PIECES):
+        piece = cookies.get(f'{name}_{i}')
+        if not piece:
+            break
+        value += piece
+    return {name: value}
+
+
+def fetch_fabric_identity_from_cookies(cookies):
+    """
+    Same as fetch_fabric_identity, for a user who signed in with FABRIC: `cookies`
+    is their login cookie, whole (see vouch_cookies), which FABRIC UIS checks itself.
+    """
+    if not cookies:
+        return None, "You are not signed in with FABRIC."
+    return _fetch_identity({"cookies": cookies},
+                           invalid="Your FABRIC sign-in has expired. Please sign in again.")
+
+
+def _fetch_identity(auth, invalid):
+    """`auth` is what proves who the user is to FABRIC UIS: {"headers": ...} or {"cookies": ...}."""
     uis = current_app.config['FABRIC_UIS_URL']
-    headers = {"Authorization": f"Bearer {id_token}", "Accept": "application/json"}
+    auth = dict(auth, headers=dict(auth.get('headers', {}), Accept='application/json'))
 
     try:
-        resp = http_requests.get(
-            f"{uis}/whoami", headers=headers, timeout=15
-        )
+        resp = http_requests.get(f"{uis}/whoami", timeout=15, **auth)
     except http_requests.exceptions.RequestException as e:
         current_app.logger.warning("FABRIC UIS /whoami failed: %s", e)
-        return None, "Could not reach FABRIC to check the token. Please try again later."
+        return None, "Could not reach FABRIC to check who you are. Please try again later."
 
     if resp.status_code != 200:
-        return None, "Invalid or expired FABRIC token"
+        return None, invalid
 
     results = resp.json().get("results", [])
     if not results:
@@ -73,10 +134,7 @@ def fetch_fabric_identity(id_token):
         return None, "Incomplete user info from FABRIC"
 
     try:
-        resp = http_requests.get(
-            f"{uis}/people/{uuid}?as_self=false",
-            headers=headers, timeout=15
-        )
+        resp = http_requests.get(f"{uis}/people/{uuid}?as_self=false", timeout=15, **auth)
     except http_requests.exceptions.RequestException as e:
         current_app.logger.warning("FABRIC UIS /people failed: %s", e)
         return None, "Could not get your projects from FABRIC. Please try again later."
@@ -99,8 +157,40 @@ def fetch_fabric_identity(id_token):
         else:
             user_project_ids.add(role_name)
 
+    try:
+        service_projects = _fetch_service_projects(uis, auth, uuid)
+    except (http_requests.exceptions.RequestException, ValueError) as e:
+        current_app.logger.warning("FABRIC UIS /projects failed: %s", e)
+        return None, "Could not get your projects from FABRIC. Please try again later."
+
     return {"uuid": uuid, "name": name, "email": email,
-            "project_ids": sorted(user_project_ids)}, None
+            "project_ids": sorted(user_project_ids),
+            "service_projects": service_projects}, None
+
+
+def _fetch_service_projects(uis, auth, uuid):
+    """
+    The user's active service projects, as [{"uuid", "name"}] sorted by name.
+    Only these give access to services: FABRIC issues "service" tokens, which are
+    safe to pass to service nodes, for projects of this type only.
+    """
+    wanted = current_app.config['SERVICE_PROJECT_TYPE']
+    found, offset, limit = [], 0, 200
+    while True:
+        resp = http_requests.get(
+            f"{uis}/projects", timeout=15,
+            params={"person_uuid": uuid, "offset": offset, "limit": limit,
+                    "sort_by": "name", "order_by": "asc"}, **auth)
+        if resp.status_code != 200:
+            raise ValueError(f"/projects answered {resp.status_code}")
+        body = resp.json()
+        page = body.get("results") or []
+        for p in page:
+            if p.get("active", True) and p.get("project_type") == wanted and p.get("uuid"):
+                found.append({"uuid": p["uuid"], "name": p.get("name") or p["uuid"]})
+        offset += len(page)
+        if not page or offset >= (body.get("total") or 0):
+            return found
 
 
 def get_or_create_user(fabric_uuid, username, email=None):

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ 'Edit Service' if edit_mode else 'Register Service' }} - FABRIC Service Portal{% endblock %}
+{% block title %}{{ 'Edit Service' if edit_mode else 'Register Service' }} - FABRIC Service Marketplace{% endblock %}
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 {% endblock %}
@@ -56,12 +56,19 @@
                                placeholder="Brief description of your service">
                     </div>
                     <div class="col-md-10" id="projects-section">
-                        <label class="form-label">Allowed Projects (users in these projects can use this service)</label>
+                        <label class="form-label">Allowed Service Projects (members of these projects can use this service)</label>
                         <div id="projects-list"></div>
                         <button type="button" id="add-project-btn" class="btn btn-outline-secondary btn-sm mt-2">
                             + Add Project
                         </button>
-                        <div class="form-text">Add one or more FABRIC project UUIDs.</div>
+                        <div class="form-text">
+                            Add one or more FABRIC <strong>service project</strong> UUIDs. Other kinds of
+                            project don't give access: FABRIC only issues service tokens for service projects.
+                            {% if current_user and current_user.service_projects %}
+                            Your service projects:
+                            {% for p in current_user.service_projects %}{{ p.name }} (<code>{{ p.uuid }}</code>){% if not loop.last %}, {% endif %}{% endfor %}.
+                            {% endif %}
+                        </div>
                     </div>
                     <div class="col-md-2">
                         <label class="form-label">Icon Color</label>

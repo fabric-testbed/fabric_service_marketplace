@@ -28,10 +28,22 @@ def _grant_service(service, user_id, name, uuid):
     session[f'auth_{service.name}'] = {'id': user_id, 'name': name, 'uuid': uuid}
 
 
+def _project_links(service):
+    """Where a user asks to join each of the service's allowed projects: its page on the FABRIC portal."""
+    base = current_app.config['FABRIC_PORTAL_URL']
+    return [{'uuid': p, 'url': f'{base}/projects/{p}'} for p in _allowed_projects(service) if p]
+
+
 @services_bp.route('/available_services')
 def available_services():
+    """Every registered service is listed. The ones the user cannot use yet (none
+    of their service projects is allowed) are shown greyed out, with Request access."""
+    user = current_user()
     services = Service.query.order_by(Service.created_at.desc()).all()
-    return render_template('available_services.html', services=services,
+    usable = {svc.id for svc in services
+              if svc.auth_mode == 'link' or can_use_service(user, _allowed_projects(svc))}
+    return render_template('available_services.html', services=services, usable=usable,
+                           service_projects=user.get('service_projects', []) if user else [],
                            active=health.statuses(current_app._get_current_object(), services))
 
 
@@ -73,6 +85,7 @@ def service_page(service_name):
         widgets=widgets,
         authenticated=authenticated,
         denied=denied,
+        project_links=_project_links(service) if denied else [],
         consumer_name=consumer_name,
         nodes=nodes
     )

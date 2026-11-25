@@ -1,0 +1,14 @@
+# vouch-proxy for "Sign in with FABRIC" (see config.example and docs/SETUP.md, section 4),
+# for a portal installed with deploy.sh. A portal in Docker already has
+# vouch-proxy in portal/docker-compose.yml: don't start this one as well.
+# Listens on this machine only; the portal's Nginx forwards /auth, /vouch/login
+# and /vouch/logout to it.
+services:
+  vouch-proxy:
+    image: fabrictestbed/vouch-proxy:0.27.1
+    container_name: portal-vouch-proxy
+    ports:
+      - 127.0.0.1:9090:9090
+    volumes:
+      - ./config:/config/config:ro
+    restart: always

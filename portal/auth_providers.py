@@ -2,13 +2,13 @@
 Turns a pasted FABRIC token into the user's identity.
 
 identity_from_token() returns
-    {"uuid", "name", "email", "project_ids", "token"}
+    {"uuid", "name", "email", "project_ids", "service_projects", "token"}
 by asking FABRIC's user service (FABRIC_UIS_URL) who the user is and listing
-ALL their projects from their roles, whichever project the token was made for.
+ALL their projects, whichever project the token was made for.
 Only FABRIC service tokens are accepted (see fabric_auth.check_token_scope).
 
-Any other login method (e.g. CILogon) only has to obtain the user's FABRIC
-token and call routes.auth.login_with_fabric_token(); see the README handover notes.
+Used by the token test page. "Sign in with FABRIC" does not paste a token; see
+routes.auth.login_with_fabric_cookie().
 """
 import json
 

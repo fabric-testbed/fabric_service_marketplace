@@ -3,19 +3,44 @@ Widget calls from the browser. The portal checks that the consumer may use the
 service, picks the target node, and hands the request to the gateway
 (gateway_client.relay), which forwards it to the node over FABnetv6.
 
-The node receives Authorization: Bearer <the user's FABRIC token> plus
+The node receives Authorization: Bearer <the user's FABRIC service token> plus
 X-Fabric-User-* identity headers, and checks the token with FABRIC itself.
+For a user who signed in with FABRIC, the token is for the service project that
+gives them access to this service, issued by the Credential Manager.
 Website links are not proxied; the portal only links to them.
 """
 import json
 
 from flask import Blueprint, request, jsonify, session
 
+import credmgr_client
 import gateway_client
 import token_store
+from access import current_user, service_project_for
+from fabric_auth import vouch_cookies
 from models import Service, UsageLog, db
+from routes.services import _allowed_projects
 
 proxy_bp = Blueprint('proxy', __name__)
+
+
+def _service_token(service):
+    """The FABRIC service token to pass to this service's nodes. Returns (token, error)."""
+    user = current_user()
+    project_id = service_project_for(user, _allowed_projects(service))
+    if not project_id:
+        return None, "You are not a member of a FABRIC service project allowed to use this service."
+    if user.get('signed_in_with') == 'fabric':
+        try:
+            return credmgr_client.service_token(user, project_id, vouch_cookies(request.cookies),
+                                                service.name), None
+        except credmgr_client.TokenError as e:
+            return None, str(e)
+    # Logged in on the token test page: pass on the token that was pasted
+    token = token_store.get()
+    if not token:
+        return None, "This service needs your FABRIC token. Please log out and log in again."
+    return token, None
 
 
 @proxy_bp.route(
@@ -33,10 +58,9 @@ def widget_proxy(service_name, widget_id):
     if service.auth_mode == 'link':
         return jsonify({"error": "This service is hosted elsewhere; open its link instead."}), 400
 
-    bearer_token = token_store.get()
-    if not bearer_token:
-        return jsonify({"error": "This service needs your FABRIC token. "
-                                 "Please log out and log in again."}), 401
+    bearer_token, error = _service_token(service)
+    if error:
+        return jsonify({"error": error}), 401
 
     widgets = json.loads(service.canvas_json)
     widget = next((w for w in widgets if w['id'] == widget_id), None)

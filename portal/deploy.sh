@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Deploy the FABRIC Service Portal on Ubuntu/Debian or Rocky Linux/RHEL.
+# Deploy the FABRIC Service Marketplace on Ubuntu/Debian or Rocky Linux/RHEL.
 # Prerequisite: portal.env exists (copy portal.env.example and fill it in).
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$APP_DIR/venv"
@@ -20,7 +20,7 @@ set -a; source "$APP_DIR/portal.env"; set +a
 . /etc/os-release
 if [[ " ${ID:-} ${ID_LIKE:-} " =~ \ (rhel|fedora|centos)\  ]]; then OS_FAMILY=rhel; else OS_FAMILY=debian; fi
 
-echo "=== FABRIC Service Portal — Deploy ($PRETTY_NAME) ==="
+echo "=== FABRIC Service Marketplace — Deploy ($PRETTY_NAME) ==="
 
 # ── 1. Install system packages ──
 echo "[1/6] Installing system packages..."
@@ -111,14 +111,15 @@ sudo systemctl restart nginx
 echo "[5/6] Setting up systemd service..."
 sudo tee /etc/systemd/system/fabric-portal.service > /dev/null << EOF
 [Unit]
-Description=FABRIC Service Portal
+Description=FABRIC Service Marketplace
 After=network.target
 
 [Service]
 User=root
 WorkingDirectory=$APP_DIR
 Environment="PATH=$VENV_DIR/bin"
-ExecStart=$VENV_DIR/bin/gunicorn -w 4 --threads 8 -b 127.0.0.1:5000 app:app
+# --limit-request-field_size: the FABRIC login cookie can be over 8 KB
+ExecStart=$VENV_DIR/bin/gunicorn -w 4 --threads 8 -b 127.0.0.1:5000 --limit-request-field_size 32768 app:app
 Restart=always
 
 [Install]

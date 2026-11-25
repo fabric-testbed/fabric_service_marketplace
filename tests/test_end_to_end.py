@@ -95,6 +95,7 @@ def portal(gateway, fabric_uis, tmp_path_factory):
         PORTAL_SECRET_KEY='test-secret-key',
         PORTAL_DATABASE_URI=f'sqlite:///{tmp}/portal.db',
         FABRIC_UIS_URL=fabric_uis,
+        FABRIC_CREDMGR_URL=fabric_uis,  # the stand-in also plays the Credential Manager
         PORTAL_SERVICE_NODE_NETWORK='::1/128',
         PORTAL_PROJECT_ID=PORTAL_PROJECT,
         GATEWAY_URL=gateway,
@@ -884,3 +885,282 @@ def test_generated_function_names_are_valid(path, expected):
     assert _func_name(path) == expected
     widget = {'id': 'w1', 'type': 'form', 'label': 'x', 'endpoint': path, 'method': 'GET'}
     compile(generate_flask_template([widget], 8080), 'app.py', 'exec')
+
+
+# ── Sign in with FABRIC: login cookie -> service projects -> a service token per project ──
+
+from urllib.parse import parse_qs, urlparse  # noqa: E402
+
+from fabric_uis_standin import (COOKIE_NAME, ISSUED, RESEARCH_PROJECT,  # noqa: E402
+                                SECOND_SERVICE_PROJECT, login_cookie)
+
+RESEARCHER = '44444444-4444-4444-4444-444444444444'
+TWO_PROJECTS = '55555555-5555-5555-5555-555555555555'
+
+
+def _claims(token):
+    import base64, json
+    payload = token.split('.')[1]
+    return json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
+
+
+def fabric_sign_in(client, user_uuid, next_url=None):
+    """What the browser does after vouch-proxy has set the FABRIC login cookie."""
+    client.post('/auth/logout')
+    client.set_cookie(COOKIE_NAME, login_cookie(user_uuid))
+    return client.get('/auth/fabric/callback' + (f'?next={next_url}' if next_url else ''))
+
+
+def test_sign_in_starts_at_vouch(portal):
+    """Without the login cookie, the browser is sent to vouch-proxy, to come back to the callback."""
+    resp = portal.test_client().get('/auth/fabric/start?next=/available_services/echo-svc')
+    assert resp.status_code == 302
+    target = urlparse(resp.headers['Location'])
+    assert target.path == '/vouch/login'
+    callback = urlparse(parse_qs(target.query)['url'][0])
+    assert callback.scheme and callback.netloc  # vouch needs a full address
+    assert callback.path == '/auth/fabric/callback'
+    assert parse_qs(callback.query)['next'] == ['/available_services/echo-svc']
+
+
+def test_sign_in_does_not_return_to_other_sites(portal):
+    resp = portal.test_client().get('/auth/fabric/start?next=https://evil.example/')
+    callback = urlparse(parse_qs(urlparse(resp.headers['Location']).query)['url'][0])
+    assert callback.query == ''
+    client = portal.test_client()
+    resp = fabric_sign_in(client, CONSUMER, next_url='//evil.example/')
+    assert resp.headers['Location'] == '/available_services'
+
+
+def test_sign_in_with_fabric_cookie(portal, fabric_uis):
+    client = portal.test_client()
+    resp = fabric_sign_in(client, AUTHOR)
+    assert resp.status_code == 302 and resp.headers['Location'] == '/register_service'
+    with client.session_transaction() as s:
+        user = s['portal_user']
+    assert user['uuid'] == AUTHOR and user['signed_in_with'] == 'fabric'
+    assert user['can_register'] is True
+    assert set(user['project_ids']) == {PORTAL_PROJECT, CONSUMER_PROJECT}
+    # Only the service project counts for using services; the portal project is not one
+    assert user['service_projects'] == [{'uuid': CONSUMER_PROJECT, 'name': 'Service - Echo'}]
+
+    # Already signed in with FABRIC elsewhere: the Sign in button logs straight in
+    client.post('/auth/logout')
+    client.set_cookie(COOKIE_NAME, login_cookie(CONSUMER))
+    resp = client.get('/auth/fabric/start?next=/available_services/echo-svc')
+    assert resp.headers['Location'] == '/available_services/echo-svc'
+
+
+@pytest.mark.parametrize('names', [
+    ['{n}_1of3', '{n}_2of3', '{n}_3of3'],   # how vouch-proxy names the pieces
+    ['{n}', '{n}_1', '{n}_2'],
+])
+def test_sign_in_joins_a_cookie_split_in_pieces(portal, fabric_uis, service, names):
+    """A large login cookie arrives in pieces. FABRIC only reads one whole cookie
+    (so does the stand-in), so the portal joins the pieces before passing it on."""
+    client = portal.test_client()
+    value = login_cookie(CONSUMER)
+    for name, piece in zip(names, (value[:40], value[40:80], value[80:])):
+        client.set_cookie(name.format(n=COOKIE_NAME), piece)
+    assert client.get('/auth/fabric/callback').headers['Location'] == '/available_services'
+    # ... also when asking the Credential Manager for the service token
+    client.get('/available_services/echo-svc')
+    resp = client.get('/available_services/echo-svc/proxy/w1')
+    assert resp.status_code == 200, resp.data
+    assert _claims(resp.json['authorization'][len('Bearer '):])['uuid'] == CONSUMER
+
+
+@pytest.mark.parametrize('name', ['{n}_1of999999999999', '{n}_1of99', '{n}_5of17', '{n}_1of0'])
+def test_made_up_piece_counts_are_ignored(portal, name):
+    """Cookie names come from the browser; a huge piece count must not make the portal work."""
+    from fabric_auth import vouch_cookies
+    with portal.test_request_context():
+        start = time.time()
+        assert vouch_cookies({name.format(n=COOKIE_NAME): 'x'}) == {}
+        # Pieces that disagree on the count are not joined either
+        assert vouch_cookies({f'{COOKIE_NAME}_1of2': 'a', f'{COOKIE_NAME}_2of3': 'b'}) == {}
+        assert time.time() - start < 0.5
+
+
+def test_sign_in_refuses_a_cookie_with_a_piece_missing(portal, fabric_uis):
+    client = portal.test_client()
+    value = login_cookie(CONSUMER)
+    client.set_cookie(f'{COOKIE_NAME}_1of3', value[:40])
+    client.set_cookie(f'{COOKIE_NAME}_3of3', value[80:])
+    assert client.get('/auth/fabric/callback').headers['Location'].startswith('/login?error=')
+
+
+@pytest.mark.parametrize('cookie', [None, 'garbage', 'expired'])
+def test_sign_in_fails_without_a_valid_cookie(portal, fabric_uis, cookie):
+    client = portal.test_client()
+    if cookie:
+        client.set_cookie(COOKIE_NAME, login_cookie(CONSUMER, lifetime=-10) if cookie == 'expired' else cookie)
+    resp = client.get('/auth/fabric/callback')
+    assert resp.status_code == 302 and resp.headers['Location'].startswith('/login?error=')
+    with client.session_transaction() as s:
+        assert 'portal_user' not in s
+    # A cookie FABRIC refuses does not log in from the start page either: go to vouch
+    assert urlparse(client.get('/auth/fabric/start').headers['Location']).path == '/vouch/login'
+
+
+def test_user_sees_all_their_service_projects(portal, fabric_uis):
+    """The stand-in returns projects 5 at a time; inactive and non-service ones are left out."""
+    client = portal.test_client()
+    fabric_sign_in(client, TWO_PROJECTS)
+    page = client.get('/available_services').data
+    assert b'Service - Echo' in page and b'Service - Second' in page
+    fabric_sign_in(client, RESEARCHER)
+    page = client.get('/available_services').data
+    assert b'not a member of any FABRIC service project yet' in page
+    assert b'Service - Retired' not in page and b'Some Research' not in page
+
+
+def test_service_list_greys_out_services_the_user_cannot_use(portal, service):
+    client = portal.test_client()
+    # A service open to a research project, and one open to another service project
+    login(client, 'TestAuthor')
+    for name, project in (('research-only', RESEARCH_PROJECT), ('second-only', SECOND_SERVICE_PROJECT)):
+        resp = client.post('/api/register_service', json={
+            'service_name': name, 'access_project_ids': [project],
+            'nodes': [{'name': 'n', 'ipv6': '::1', 'port': 8080}],
+            'widgets': [{'id': 'w1', 'type': 'button', 'label': 'x', 'endpoint': '/api/x', 'method': 'GET'}]})
+        assert resp.status_code == 201, resp.json
+
+    import re
+
+    def locked(page, name):
+        """True if the service's card is greyed out, False if usable. It must be listed."""
+        card = re.search(rb'href="/available_services/' + name.encode() + rb'".*?card-footer.*?</div>\s*</div>',
+                         page, re.S)
+        assert card, f'{name} is not listed'
+        return b'service-card-locked' in card.group(0)
+
+    # Every service is listed for everyone; the author cannot use research-only either
+    page = client.get('/available_services').data
+    assert not locked(page, 'echo-svc')
+    assert locked(page, 'research-only') and locked(page, 'second-only')
+    assert b'Request access' in page
+
+    fabric_sign_in(client, CONSUMER)
+    page = client.get('/available_services').data
+    assert not locked(page, 'echo-svc')
+    assert locked(page, 'research-only') and locked(page, 'second-only')
+
+    fabric_sign_in(client, TWO_PROJECTS)
+    page = client.get('/available_services').data
+    assert not locked(page, 'echo-svc') and not locked(page, 'second-only')
+    assert locked(page, 'research-only')
+
+    # A research project gives no access, even when the service lists it
+    fabric_sign_in(client, RESEARCHER)
+    page = client.get('/available_services').data
+    assert locked(page, 'echo-svc') and locked(page, 'research-only')
+    assert client.get('/available_services/research-only/proxy/w1').status_code == 401
+    # The service's page says how to get access: the allowed project on the FABRIC portal
+    page = client.get('/available_services/echo-svc').data
+    assert b'Request access' in page and b'Echo GET' not in page
+    assert f'href="https://portal.fabric-testbed.net/projects/{CONSUMER_PROJECT}"'.encode() in page
+
+    # Not logged in: listed, greyed out, asked to log in rather than to request access
+    anonymous = portal.test_client().get('/available_services').data
+    assert locked(anonymous, 'echo-svc')
+    assert b'Log in to use' in anonymous and b'Request access' not in anonymous
+
+
+def test_website_links_are_listed_for_everyone(portal):
+    client = portal.test_client()
+    with as_admin(portal, client, 'TestAuthor'):
+        client.post('/api/register_service', json={
+            'service_name': 'link-for-all', 'auth_mode': 'link', 'link_url': 'https://example.org'})
+    assert b'href="/available_services/link-for-all"' in portal.test_client().get('/available_services').data
+
+
+def test_node_gets_a_service_token_for_the_service_project(portal, service):
+    """Signed in with FABRIC: the Credential Manager issues the token, once per project."""
+    client = portal.test_client()
+    fabric_sign_in(client, TWO_PROJECTS)
+    del ISSUED[:]
+    assert b'Echo GET' in client.get('/available_services/echo-svc').data
+
+    resp = client.get('/available_services/echo-svc/proxy/w1?host=example.org')
+    assert resp.status_code == 200, resp.data
+    assert resp.json['user_uuid'] == TWO_PROJECTS and resp.json['cookie'] is None
+    token = resp.json['authorization'][len('Bearer '):]
+    claims = _claims(token)
+    assert claims['uuid'] == TWO_PROJECTS and claims['scope'] == 'service'
+    # echo-svc allows CONSUMER_PROJECT, not the user's first service project
+    assert claims['projects'] == [{'uuid': CONSUMER_PROJECT}]
+    assert ISSUED == [(TWO_PROJECTS, CONSUMER_PROJECT, 'FABRIC Service Marketplace: echo-svc')]
+
+    # The token is kept for the session: not issued again
+    again = client.post('/available_services/echo-svc/proxy/w2', json={'title': 'hi'})
+    assert again.json['authorization'] == f'Bearer {token}' and len(ISSUED) == 1
+
+    # A service open to the user's other project gets a token for that project.
+    # (Its node is not running, so the call fails after the token was issued.)
+    login_as_author = portal.test_client()
+    login(login_as_author, 'TestAuthor')
+    login_as_author.post('/api/register_service', json={
+        'service_name': 'second-project-svc', 'access_project_ids': [SECOND_SERVICE_PROJECT],
+        'nodes': [{'name': 'n', 'ipv6': '::1', 'port': _free_port(socket.AF_INET6, '::1')}],
+        'widgets': [{'id': 'w1', 'type': 'button', 'label': 'x', 'endpoint': '/api/x', 'method': 'GET'}]})
+    client.get('/available_services/second-project-svc')
+    client.get('/available_services/second-project-svc/proxy/w1')
+    assert ISSUED[1:] == [(TWO_PROJECTS, SECOND_SERVICE_PROJECT,
+                           'FABRIC Service Marketplace: second-project-svc')]
+
+    # Logging out forgets the tokens
+    from models import ServiceToken, User
+    with portal.app_context():
+        user_id = User.query.filter_by(fabric_uuid=TWO_PROJECTS).first().id
+        assert ServiceToken.query.filter_by(user_id=user_id).count() == 2
+    client.post('/auth/logout')
+    with portal.app_context():
+        assert ServiceToken.query.filter_by(user_id=user_id).count() == 0
+
+
+def test_no_token_for_another_user(portal, service):
+    """The login cookie changed to another user after signing in: nothing is passed on."""
+    client = portal.test_client()
+    fabric_sign_in(client, CONSUMER)
+    client.get('/available_services/echo-svc')
+    client.set_cookie(COOKIE_NAME, login_cookie(TWO_PROJECTS))
+    resp = client.get('/available_services/echo-svc/proxy/w1')
+    assert resp.status_code == 401 and 'sign-in changed' in resp.json['error']
+
+
+def test_widget_needs_the_login_cookie_to_get_a_token(portal, service):
+    client = portal.test_client()
+    fabric_sign_in(client, CONSUMER)
+    client.get('/available_services/echo-svc')
+    client.delete_cookie(COOKIE_NAME)
+    resp = client.get('/available_services/echo-svc/proxy/w1')
+    assert resp.status_code == 401 and 'sign in again' in resp.json['error']
+
+
+def test_logout_also_ends_the_fabric_sign_in(portal, fabric_uis):
+    client = portal.test_client()
+    fabric_sign_in(client, CONSUMER)
+    target = urlparse(client.post('/auth/logout').json['redirect'])
+    assert target.path == '/vouch/logout' and parse_qs(target.query)['url'][0].endswith('/')
+    # Logged in with a pasted token: there is no FABRIC sign-in to end
+    login(client, 'TestConsumer')
+    assert 'redirect' not in client.post('/auth/logout').json
+
+
+def test_token_test_page_shows_service_projects(portal, fabric_uis):
+    info = portal.test_client().post('/api/token_test', json={'id_token': make_token(AUTHOR)}).json
+    assert info['service_projects'] == [{'uuid': CONSUMER_PROJECT, 'name': 'Service - Echo'}]
+
+
+def test_old_session_without_service_projects_is_denied(portal, service):
+    """A session from before this version has no service projects: log in again, no error page."""
+    client = portal.test_client()
+    login(client, 'TestConsumer')
+    with client.session_transaction() as s:
+        user = dict(s['portal_user'])
+        user.pop('service_projects'); user.pop('signed_in_with')
+        s['portal_user'] = user
+        s.pop('auth_echo-svc', None)
+    assert client.get('/available_services').status_code == 200
+    assert b'Echo GET' not in client.get('/available_services/echo-svc').data

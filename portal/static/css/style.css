@@ -1,92 +1,218 @@
-/* ── FABRIC Service Portal — color palette ──
-   Aligned with the main FABRIC portal:
-   - Page background: very light blue-gray
-   - Brand: dark navy blue
-   - Primary: FABRIC teal/cyan
-   - Accent: warm orange
+/* ── FABRIC Service Marketplace ──
+   The colour theme of the main FABRIC portal (portal.fabric-testbed.net;
+   its styles/custom.scss and App.scss):
+
+     primary / info  teal   #2196C9      dark     navy  #1B3A5C
+     primary-light   sky    #5BC4E5      success        #008e7a
+     secondary       gray   #5A6370      danger         #b00020
+     warning         yellow #F5C518      text           #2D3540
+     white page, #f8f9fa header and footer, Inter font, rounded cards
+
+   The FABRIC portal compiles Bootstrap with these colours, and Bootstrap then
+   picks the label colour that is readable on each: dark on teal, green, yellow
+   and sky; white on navy, red and gray. This file is plain CSS on top of the
+   stock Bootstrap build, so those label colours are set here by hand.
+   Text links use FABRIC blue (#1A73B5): teal text on white is too faint (3.4:1).
 */
 
 :root {
-    --fabric-navy: #1a3a5c;
-    --fabric-teal: #2c7da0;
-    --fabric-teal-dark: #1e5f7a;
-    --fabric-orange: #e88c30;
-    --fabric-bg: #f4f7fa;
-    --fabric-border: #dde4ec;
+    --fabric-navy: #1B3A5C;
+    --fabric-blue: #1A73B5;
+    --fabric-teal: #2196C9;
+    --fabric-teal-hover: #42A6D1;
+    --fabric-sky: #5BC4E5;
+    --fabric-yellow: #F5C518;
+    --fabric-green: #008e7a;
+    --fabric-green-hover: #269F8E;
+    --fabric-red: #b00020;
+    --fabric-gray: #5A6370;
+    --fabric-text: #2D3540;
+    --fabric-light: #EAF4FB;
+    --fabric-gray-100: #F0F2F5;
+    --fabric-border: #E2E6EA;
+    --fabric-on-light: #000;   /* label colour on teal, green, yellow, sky */
+
+    /* Bootstrap's own colours, so badges, alerts and utilities match */
+    --bs-primary: #2196C9;
+    --bs-primary-rgb: 33, 150, 201;
+    --bs-secondary: #5A6370;
+    --bs-secondary-rgb: 90, 99, 112;
+    --bs-success: #008e7a;
+    --bs-success-rgb: 0, 142, 122;
+    --bs-danger: #b00020;
+    --bs-danger-rgb: 176, 0, 32;
+    --bs-warning: #F5C518;
+    --bs-warning-rgb: 245, 197, 24;
+    --bs-info: #2196C9;
+    --bs-info-rgb: 33, 150, 201;
+    --bs-dark: #1B3A5C;
+    --bs-dark-rgb: 27, 58, 92;
+    --bs-body-color: #2D3540;
+    --bs-body-color-rgb: 45, 53, 64;
+    --bs-body-bg: #fff;
+    --bs-link-color: #1A73B5;
+    --bs-link-color-rgb: 26, 115, 181;
+    --bs-link-hover-color: #1B3A5C;
+    --bs-link-hover-color-rgb: 27, 58, 92;
+    --bs-body-font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
+html, body {
+    height: 100%;
+}
 body {
-    background-color: var(--fabric-bg);
-    color: #333;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    background-color: #fff;
+    color: var(--fabric-text);
+}
+.main-content {
+    flex: 1 0 auto;
 }
 
-/* ── Navbar ── */
-.navbar {
+/* ── Navbar: the FABRIC logo on a light bar, as on the FABRIC portal ── */
+.fabric-navbar {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid var(--fabric-border);
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
 }
 
 .fabric-brand {
     display: flex;
-    flex-direction: column;
-    line-height: 1;
+    align-items: center;
+    gap: 0.75rem;
     text-decoration: none;
 }
-.fabric-logo {
-    color: var(--fabric-navy);
-    font-size: 1.6rem;
-    font-weight: 700;
-    letter-spacing: 1px;
-}
 .fabric-subtitle {
-    color: var(--fabric-teal);
-    font-size: 0.75rem;
+    color: var(--fabric-gray);
+    font-size: 0.8rem;
     font-weight: 500;
-    margin-top: 2px;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.08em;
+    padding-left: 0.75rem;
+    border-left: 1px solid #c5cfda;
+    line-height: 1.5;
 }
 
 .navbar-light .navbar-nav .nav-link {
-    color: #2a3f54;
+    color: var(--fabric-gray);
     font-weight: 500;
 }
+/* As on the FABRIC portal: a yellow line under the link being pointed at */
+.navbar-light .navbar-nav .nav-link {
+    border-bottom: 3px solid transparent;
+}
 .navbar-light .navbar-nav .nav-link:hover {
-    color: var(--fabric-teal);
+    color: var(--fabric-gray);
+    border-bottom-color: var(--fabric-yellow);
 }
 
-/* ── Buttons ── */
+/* ── Footer ── */
+.fabric-footer {
+    flex-shrink: 0;
+    background-color: #f8f9fa;
+    border-top: 1px solid var(--fabric-border);
+    color: var(--fabric-gray);
+    padding: 1.5rem 0;
+}
+.fabric-footer a {
+    color: var(--fabric-gray);
+    text-decoration: none;
+    line-height: 1.9;
+}
+.fabric-footer a:hover {
+    color: var(--fabric-blue);
+    text-decoration: underline;
+}
+
+/* ── Buttons: FABRIC colours, with the label colour Bootstrap picks for each ── */
 .btn-primary {
     background-color: var(--fabric-teal);
     border-color: var(--fabric-teal);
+    color: var(--fabric-on-light);
 }
-.btn-primary:hover, .btn-primary:focus {
-    background-color: var(--fabric-teal-dark);
-    border-color: var(--fabric-teal-dark);
+.btn-primary:hover, .btn-primary:focus, .btn-primary:active, .btn-primary:disabled {
+    background-color: var(--fabric-teal-hover) !important;
+    border-color: var(--fabric-teal-hover) !important;
+    color: var(--fabric-on-light) !important;
 }
-
 .btn-outline-primary {
-    color: var(--fabric-teal);
+    color: var(--fabric-blue);
     border-color: var(--fabric-teal);
 }
-.btn-outline-primary:hover {
+.btn-outline-primary:hover, .btn-outline-primary:focus, .btn-outline-primary:active {
+    background-color: var(--fabric-teal) !important;
+    border-color: var(--fabric-teal) !important;
+    color: var(--fabric-on-light) !important;
+}
+.btn-success {
+    background-color: var(--fabric-green);
+    border-color: var(--fabric-green);
+    color: var(--fabric-on-light);
+}
+.btn-success:hover, .btn-success:focus, .btn-success:active {
+    background-color: var(--fabric-green-hover) !important;
+    border-color: var(--fabric-green-hover) !important;
+    color: var(--fabric-on-light) !important;
+}
+.btn-dark {
+    background-color: var(--fabric-navy);
+    border-color: var(--fabric-navy);
+}
+.btn-dark:hover, .btn-dark:focus {
+    background-color: #142c46;
+    border-color: #142c46;
+}
+.btn-danger {
+    background-color: var(--fabric-red);
+    border-color: var(--fabric-red);
+}
+.btn-outline-danger {
+    color: var(--fabric-red);
+    border-color: var(--fabric-red);
+}
+.btn-outline-danger:hover {
+    background-color: var(--fabric-red);
+    border-color: var(--fabric-red);
+}
+
+/* ── Badges: same rule for the label colour ── */
+.badge.bg-primary, .badge.bg-info, .badge.bg-success, .badge.bg-warning {
+    color: var(--fabric-on-light) !important;
+}
+
+/* ── Forms ── */
+.form-control:focus, .form-select:focus {
+    border-color: var(--fabric-sky);
+    box-shadow: 0 0 0 0.2rem rgba(33, 150, 201, 0.2);
+}
+.form-check-input:checked {
     background-color: var(--fabric-teal);
     border-color: var(--fabric-teal);
 }
 
-/* ── Cards ── */
+/* ── Cards: rounded, with the FABRIC portal's soft navy shadow ── */
 .card {
+    border-radius: 1rem;
     border: 1px solid var(--fabric-border);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+    box-shadow: 0 2px 12px rgba(27, 58, 92, 0.08), 0 1px 3px rgba(27, 58, 92, 0.06);
+    overflow: hidden;
 }
 .card-header {
-    background-color: #fafbfd;
+    background-color: var(--fabric-gray-100);
     border-bottom: 1px solid var(--fabric-border);
-    color: var(--fabric-navy);
+    color: var(--fabric-text);
+    padding: 1rem 1.25rem;
 }
 
 /* ── Headings ── */
-h1, h2, h3, h4 {
-    color: var(--fabric-navy);
+h1, h2, h3, h4, h5, h6 {
+    font-family: "Inter", system-ui, sans-serif;
+    color: var(--fabric-text);
+}
+h1, h2, h3 {
+    font-weight: 400;
 }
 
 /* ── Landing page cards ── */
@@ -97,7 +223,7 @@ h1, h2, h3, h4 {
 }
 .landing-card:hover {
     transform: translateY(-4px);
-    box-shadow: 0 8px 25px rgba(44, 125, 160, 0.15) !important;
+    box-shadow: 0 8px 32px rgba(27, 58, 92, 0.14), 0 2px 8px rgba(27, 58, 92, 0.08) !important;
 }
 
 /* ── Service gallery cards ── */
@@ -107,7 +233,7 @@ h1, h2, h3, h4 {
 }
 .service-card:hover {
     transform: translateY(-2px);
-    box-shadow: 0 4px 15px rgba(44, 125, 160, 0.15) !important;
+    box-shadow: 0 8px 32px rgba(27, 58, 92, 0.14), 0 2px 8px rgba(27, 58, 92, 0.08) !important;
 }
 
 /* ── Widget builder canvas ── */
@@ -156,15 +282,24 @@ h1, h2, h3, h4 {
 
 /* ── Links ── */
 a {
-    color: var(--fabric-teal);
+    color: var(--fabric-blue);
 }
 a:hover {
-    color: var(--fabric-teal-dark);
+    color: var(--fabric-navy);
 }
 
 /* ── Alerts: keep Bootstrap defaults but tweak info to match teal ── */
 .alert-info {
-    background-color: #e6f0f6;
-    border-color: #b8d4e0;
+    background-color: var(--fabric-light);
+    border-color: #B8DDF2;
     color: var(--fabric-navy);
+}
+
+/* A service the user cannot use yet: greyed out, with a "Request access" badge */
+.service-card-locked {
+    opacity: 0.6;
+    filter: grayscale(0.7);
+}
+.service-card-locked:hover {
+    opacity: 0.85;
 }

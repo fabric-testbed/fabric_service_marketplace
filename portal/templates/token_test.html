@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Test a FABRIC Token - FABRIC Service Portal{% endblock %}
+{% block title %}Test a FABRIC Token - FABRIC Service Marketplace{% endblock %}
 {% block content %}
 <div class="row justify-content-center mt-4">
     <div class="col-lg-8">
@@ -26,6 +26,7 @@
                     <tr><th>FABRIC UUID</th><td><code id="r-uuid"></code></td></tr>
                     <tr><th>Email</th><td id="r-email"></td></tr>
                     <tr><th>Projects</th><td id="r-projects"></td></tr>
+                    <tr><th>Service projects</th><td id="r-service-projects"></td></tr>
                     <tr><th>Can register services</th><td id="r-register"></td></tr>
                     <tr><th>Services you can use</th><td id="r-services"></td></tr>
                 </table>
@@ -80,6 +81,16 @@ $('check-btn').addEventListener('click', async () => {
             row.appendChild(text('code', p));
             if (p === data.portal_project_id) row.appendChild(text('span', 'portal project', 'badge bg-primary ms-2'));
             projects.appendChild(row);
+        });
+
+        const serviceProjects = $('r-service-projects');
+        serviceProjects.replaceChildren();
+        if (!data.service_projects.length) serviceProjects.textContent = 'None — no services on FABRIC nodes can be used';
+        data.service_projects.forEach(p => {
+            const row = document.createElement('div');
+            row.appendChild(text('span', p.name + ' '));
+            row.appendChild(text('code', p.uuid));
+            serviceProjects.appendChild(row);
         });
 
         $('r-register').textContent = data.can_register

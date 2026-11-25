@@ -102,3 +102,21 @@ class UserToken(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'))
     token = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class ServiceToken(db.Model):
+    """
+    A FABRIC service token issued by the Credential Manager for a user who signed
+    in with FABRIC, one per service project, kept until it expires so it is not
+    issued again on every widget call. Tied to the browser session by `ref`,
+    like UserToken, and deleted at logout.
+    """
+    __tablename__ = 'service_tokens'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    ref = db.Column(db.String, nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'))
+    project_id = db.Column(db.String, nullable=False)
+    token = db.Column(db.Text, nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)

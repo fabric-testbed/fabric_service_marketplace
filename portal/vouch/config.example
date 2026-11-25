@@ -1,0 +1,62 @@
+# vouch-proxy configuration for "Sign in with FABRIC" on the portal.
+# Copy to portal/vouch/config and fill in the CHANGE_ME values, then start
+# vouch-proxy (see docs/SETUP.md, section 4):
+#   portal in Docker:        `docker compose restart vouch-proxy` in portal/
+#   portal from deploy.sh:   `docker compose up -d` in this folder
+#
+# The portal does not check the login cookie itself. It passes it to FABRIC's
+# user service and Credential Manager, which do. So these must be the SAME as
+# in the FABRIC deployment the portal talks to (ask the FABRIC team):
+#   vouch.jwt.secret, vouch.cookie.name, vouch.cookie.domain
+# A different secret under the same cookie name would also replace users'
+# FABRIC login cookie with one FABRIC's own sites cannot read.
+vouch:
+    logLevel: info
+    listen: 0.0.0.0
+    port: 9090
+    allowAllUsers: true
+    publicAccess: true
+    # Where the browser may be sent after logging out: the portal's address
+    post_logout_redirect_uris:
+        - https://CHANGE_ME_PORTAL_HOSTNAME/
+    jwt:
+        secret: CHANGE_ME_SAME_SECRET_AS_FABRIC
+        maxAge: 240
+        compress: true
+    cookie:
+        secure: true
+        domain: fabric-testbed.net
+        name: fabric-service
+        maxAge: 240
+    headers:
+        jwt: X-Vouch-Token
+        querystring: access_token
+        redirect: X-Vouch-Requested-URI
+        claims:
+            - aud
+            - email
+            - family_name
+            - given_name
+            - iss
+            - name
+            - oidc
+            - sub
+            - token_id
+        idtoken: X-Vouch-IdP-IdToken
+        accesstoken: X-Vouch-IdP-AccessToken
+        refreshtoken: X-Vouch-IdP-RefreshToken
+
+oauth:
+    provider: oidc
+    # A CILogon client (https://cilogon.org/oauth2/register) whose callback URL is
+    # https://<portal hostname>/auth
+    client_id: CHANGE_ME_CILOGON_CLIENT_ID
+    client_secret: CHANGE_ME_CILOGON_CLIENT_SECRET
+    auth_url: https://cilogon.org/authorize
+    token_url: https://cilogon.org/oauth2/token
+    user_info_url: https://cilogon.org/oauth2/userinfo
+    scopes:
+        - openid
+        - email
+        - profile
+    callback_url: https://CHANGE_ME_PORTAL_HOSTNAME/auth

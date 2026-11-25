@@ -1,13 +1,13 @@
-# FABRIC Service Portal — Design Document
+# FABRIC Service Marketplace — Design Document
 
 ## 1. Overview
 
-The **FABRIC Service Portal** is a self-service web application for FABRIC testbed researchers. It lets authenticated authors register services, generates working Flask code automatically, and gives consumers a shareable web page per service. A service is one of two kinds (§6.1): an app on the author's FABRIC nodes, which receives each user's FABRIC service token and can check it itself (**node service**, `fabric_token`), or an existing website the portal links to (**website link**, `link`, added by admins). For node services the page's widget proxies to the author's backend over the private FABnetv6 network.
+The **FABRIC Service Marketplace** is a self-service web application for FABRIC testbed researchers. It lets authenticated authors register services, generates working Flask code automatically, and gives consumers a shareable web page per service. A service is one of two kinds (§6.1): an app on the author's FABRIC nodes, which receives each user's FABRIC service token and can check it itself (**node service**, `fabric_token`), or an existing website the portal links to (**website link**, `link`, added by admins). For node services the page's widget proxies to the author's backend over the private FABnetv6 network.
 
 The system has three parts: the **portal** (central infrastructure, public IP), the **gateway** (a FABRIC VM with FABNetv4Ext + FABnetv6) and the authors' **service nodes**. The portal handles everything users see and relays widget calls through the gateway, which reaches service nodes over FABnetv6. It provides:
 
 1. A **landing page** (no auth) with two entry points: register a service, or browse available services.
-2. A **login** for authors and consumers: a "Sign in with FABRIC" button for the automated login (e.g. CILogon, to be added), plus a token test page for testing.
+2. A **login** for authors and consumers: a "Sign in with FABRIC" button (vouch-proxy + CILogon, the same login as the Credential Manager), plus a token test page for testing.
 3. A **registration form** with an access-mode choice, a widget builder with live Flask code preview, and an edit mode for existing services.
 4. An **available services gallery** listing all registered services.
 5. **Individual service pages** where consumers in a service's allowed projects use its widget (node services), or follow its link (website links).
@@ -103,11 +103,11 @@ across reboots or slice reconfiguration (see SETUP.md).
 
 ### 4.1 Landing Page (`/`)
 - **No auth required.**
-- Title: **FABRIC Service Portal**
+- Title: **FABRIC Service Marketplace**
 - Two cards: *Register a FABRIC Service* → `/login`, *Available FABRIC Services* → `/available_services`.
 
 ### 4.2 Login Page (`/login`)
-- **Sign in with FABRIC** button → `PORTAL_LOGIN_URL` (the automated login, e.g. CILogon); disabled while unset.
+- **Sign in with FABRIC** button → `PORTAL_LOGIN_URL` (`/auth/fabric/start`: vouch-proxy + CILogon, the same login as the Credential Manager, see §6); disabled while unset.
 - "For testing" link to `/token_test`, where a FABRIC service token can be pasted to log in.
 - Accepts either the full JSON blob from the FABRIC portal (containing `id_token`, `refresh_token`, etc.) or just the `id_token` string.
 - `POST /auth/login` (used by `/token_test`) validates the token against FABRIC UIS (see §6).
@@ -129,12 +129,12 @@ Auth required + owner. Same page as the widget builder, but pre-filled with the 
 Shows the service URL. Node services: the generated Flask app (same as the live preview) and how to run it. Website links: "nothing to install".
 
 ### 4.6 Available Services Gallery (`/available_services`)
-No auth required. Grid of service cards with icon, name, description, owner, status, and a "Website link" badge for website links. Click → service page.
+Grid of service cards with icon, name, description, owner, status, and a "Website link" badge for website links. Click → service page. Every registered service is listed, for everyone. A node service the user cannot use (none of their FABRIC service projects is allowed) is greyed out with a **Request access** badge, or **Log in to use** for visitors; its service page then links to each allowed project's page on the FABRIC portal (`FABRIC_PORTAL_URL/projects/<uuid>`), where the user can ask to join. Logged-in users see their service projects above the grid.
 
 ### 4.7 Individual Service Page (`/available_services/<service_name>`)
 - **Website link**: shows title/description and an "Open" link to the service's URL, for everyone. Nothing is proxied.
-- **Node service, logged in and in an allowed project**: access is granted automatically; the widget is interactive. If the service has multiple nodes, a Target Node dropdown appears.
-- **Node service, logged in but not in an allowed project**: explanation, no widget.
+- **Node service, logged in and in an allowed service project**: access is granted automatically; the widget is interactive. If the service has multiple nodes, a Target Node dropdown appears.
+- **Node service, logged in but not in an allowed service project**: explanation, no widget.
 - **Node service, not logged in**: a Log in button (returns to the service page after login).
 
 ### 4.8 My Services Page (`/my_services`)
@@ -233,43 +233,62 @@ column is left in place, unused.
 | `nodes_json` alongside legacy `node_ipv6`/`node_port` | Each service can run on multiple nodes; the legacy columns store the first node for backward compatibility. |
 | `access_project_ids_json` alongside legacy `access_project_id` | Service authors can authorize multiple projects for consumer access. |
 | `canvas_json` TEXT column | Widget config is variable-shape; JSON in a TEXT column keeps the relational schema simple while structured fields (owner, name) stay queryable. |
-| `user_tokens` table instead of the session cookie | FABRIC JWTs can exceed the 4 KB cookie limit, and tokens should not travel back and forth with every request. |
+| `user_tokens` / `service_tokens` tables instead of the session cookie | FABRIC JWTs can exceed the 4 KB cookie limit, and tokens should not travel back and forth with every request. `user_tokens` holds a token pasted on `/token_test`; `service_tokens` holds the tokens the Credential Manager issued for a user who signed in with FABRIC, one per service project, until they expire. |
 | `ondelete='CASCADE'` + SQLAlchemy `cascade='all, delete-orphan'` on Service→UsageLog | Deleting a service also deletes its usage logs (both at DB level and ORM level for SQLite compatibility). |
 
 ---
 
 ## 6. Authentication and Access
 
-There is **one login** for everyone. Every login method only obtains the user's
-**FABRIC token** and calls `login_with_fabric_token(token)` (`portal/routes/auth.py`).
-That shared code (`fetch_fabric_identity`, against `FABRIC_UIS_URL`) turns it into an identity
-`{uuid, name, email, project_ids, token}`, and access is decided from `project_ids`:
+There is **one login** for everyone, reached in one of two ways (`portal/routes/auth.py`).
+Both ask FABRIC UIS (`FABRIC_UIS_URL`) who the user is and build the same identity
+`{uuid, name, email, project_ids, service_projects}`:
+
+| Mode | Flow |
+|---|---|
+| Sign in with FABRIC | `/auth/fabric/start`. The same login as the Credential Manager: vouch-proxy (behind the portal's Nginx) sends the browser to CILogon and sets the FABRIC login cookie, then returns it to `/auth/fabric/callback`. `login_with_fabric_cookie` passes the cookie (joined into one if the browser holds it in pieces) to FABRIC UIS (`fetch_fabric_identity_from_cookies`). If the browser already has the cookie, the start page logs in directly. |
+| token test (testing) | On `/token_test` the user pastes a FABRIC service token; `login_with_fabric_token` checks it with FABRIC UIS (`fetch_fabric_identity`). |
+
+Access is decided from the identity:
 
 | Action | Rule |
 |---|---|
 | Register / edit services | member of `PORTAL_PROJECT_ID`, or admin |
-| Use a node service | member of one of the service's `access_project_ids` |
+| Use a node service | member of an active FABRIC **service project** that is one of the service's `access_project_ids` |
 | Register / edit a website link | admin only (the form hides the option from others; the server refuses it) |
 | Use a website link | anyone (the service has its own login) |
 
-Projects come from the user's FABRIC roles (`/people/<uuid>`), not from the
-token's claims, so any valid token yields the full project list. `token` is the
-user's FABRIC token, stored server-side in `user_tokens` and passed to service nodes.
+`project_ids` comes from the user's FABRIC roles (`/people/<uuid>`) and is only
+used for `PORTAL_PROJECT_ID`. `service_projects` is the user's active projects
+of type `service` (`/projects?person_uuid=<uuid>`). Only these give access to
+node services, because FABRIC issues `service` tokens for service projects
+only, and only a `service` token may be passed to a node: a `resource` token
+can create and delete slices as the user.
 
-Only tokens whose `scope` claim is `PORTAL_REQUIRED_TOKEN_SCOPE` (default
-`service`) are accepted, at login, on `/token_test` and by the generated node
-apps. A `resource` token can create and delete slices as the user, so it must
-never be passed to a service author's node.
+**The token a node receives.** A FABRIC token belongs to one project, so the
+portal uses one per service project (`portal/credmgr_client.py`):
 
-Login providers:
+1. On a widget call, the portal picks the service project that gives the user
+   access to that service.
+2. If the session has no unexpired token for it in `service_tokens`, the portal
+   asks the Credential Manager for one (`POST /credmgr/tokens/create`,
+   `FABRIC_CREDMGR_URL`), proving who the user is with their login cookie, as
+   the Credential Manager's own web page does.
+3. The token is used only if it belongs to the session's user and has scope
+   `service`; it is kept until it expires (`PORTAL_SERVICE_TOKEN_HOURS`) or the
+   user logs out.
 
-| Mode | Flow |
-|---|---|
-| token test (testing) | On `/token_test` the user pastes a FABRIC service token; `fetch_fabric_identity` validates it with FABRIC UIS (`/whoami`, `/people/{uuid}`) and extracts project UUIDs from role names (`<project-uuid>-pm` / `-po`). |
-| automated login (to do) | Any flow (CILogon, FABRIC's existing login) that obtains the user's FABRIC service token and calls `login_with_fabric_token`; `PORTAL_LOGIN_URL` points the Sign in button at it. See SETUP.md section 4. |
+After a token-test login there is no login cookie; the pasted token is passed
+to nodes instead. Only tokens whose `scope` is `PORTAL_REQUIRED_TOKEN_SCOPE`
+(default `service`) are accepted there and by the generated node apps.
+
+The portal never checks the login cookie itself and holds no vouch secret:
+FABRIC UIS and the Credential Manager check it. So the portal's vouch-proxy
+must use the same cookie name, domain and signing secret as FABRIC's own
+(`portal/vouch/config.example`).
 
 A logged-in user who opens a service page is granted access automatically if
-their projects match, so there is no second token paste.
+their service projects match, so there is no second login.
 
 ### 6.1 Service kinds
 
@@ -382,7 +401,7 @@ Gateway → node:    <METHOD> http://[<ipv6>]:<port><endpoint>?...
 
 Portal (`portal/routes/proxy.py`, `portal/gateway_client.py`):
 1. The session must have `auth_<service_name>` set.
-2. Look up the service and widget; refuse website links. Load the user's token from `user_tokens` (401 "log in again" if missing). Select the target node from `node` (validated against the service's registered nodes; defaults to the first).
+2. Look up the service and widget; refuse website links. Find the service project that gives the user access (the first of the service's allowed projects that is one of theirs) and get the token for it: for a user who signed in with FABRIC, the one in `service_tokens` or a new one from the Credential Manager (§6); for a token-test login, the pasted token in `user_tokens`. 401 if there is none. Select the target node from `node` (validated against the service's registered nodes; defaults to the first).
 3. Send the request to the gateway with the target, the consumer's identity and the user's token. **Browser headers and cookies are not forwarded.**
 4. Log the call to `usage_log`. Return the body with `Content-Type: application/json`.
 
@@ -406,7 +425,9 @@ Widget endpoints are validated at registration: they must be plain paths startin
 | `POST /auth/login` | None | Log in with a FABRIC service token (used by `/token_test`) |
 | `GET /token_test` | None | For testing: paste a FABRIC service token, see what the portal gets from it, log in with it |
 | `POST /api/token_test` | None | Check a token with FABRIC UIS without logging in |
-| `POST /auth/logout` | Session | Clear session |
+| `GET /auth/fabric/start` | None | Sign in with FABRIC: log in from the FABRIC login cookie, or send the browser to vouch-proxy first |
+| `GET /auth/fabric/callback` | FABRIC login cookie | Where vouch-proxy returns the browser; logs in |
+| `POST /auth/logout` | Session | Clear session and stored tokens; after a FABRIC sign-in, returns the vouch-proxy logout address |
 | `GET /register_service` | Author | Widget builder |
 | `POST /api/register_service` | Author | Save new service |
 | `POST /api/preview_template` | Author | Live template preview |
@@ -416,7 +437,7 @@ Widget endpoints are validated at registration: they must be plain paths startin
 | `GET /my_services` | Author | Owner's services list |
 | `PUT /api/services/<name>` | Owner or admin | (legacy) Update service |
 | `DELETE /api/services/<name>` | Owner or admin | Delete service |
-| `GET /available_services` | None | Gallery |
+| `GET /available_services` | None | Gallery (services the user cannot use yet are greyed out) |
 | `GET /available_services/<name>` | None (token gate) | Service page |
 | `GET/POST /available_services/<name>/proxy/<widget_id>` | Service session | Proxy to backend |
 | `GET /admin` | Admin | Admin dashboard |
@@ -458,12 +479,13 @@ Service authors need the following on their slice nodes:
 
 ## 12. Security Considerations
 
-- **Token validation** — every token is validated against FABRIC UIS on login. Only `service` tokens are accepted. The only stored tokens are in `user_tokens` (see below).
+- **Token validation** — every pasted token, and every FABRIC login cookie, is checked with FABRIC UIS on login; the portal holds no signing secret. Only `service` tokens are accepted or passed on. The only stored tokens are in `user_tokens` and `service_tokens` (see below).
+- **Login cookie** — the FABRIC login cookie is sent only to FABRIC UIS and the Credential Manager, never to the gateway or a node. A token the Credential Manager issues is passed on only if it belongs to the session's user and has scope `service`.
 - **Gateway isolation** — the gateway accepts calls only from the portal's IP with the shared secret, and forwards only to FABnetv6. It holds no user data.
 - **No header leakage** — browser cookies and headers are never forwarded to service nodes; they receive only the user's service token and identity.
-- **User tokens** — kept server-side in `user_tokens`, never in the cookie; deleted at logout and expired with the session (4 h). FABRIC tokens may expire sooner; nodes then return 401 and the user logs in again.
+- **User tokens** — kept server-side in `user_tokens` / `service_tokens`, never in the session cookie; deleted at logout and expired with the session (4 h). FABRIC tokens may expire sooner; nodes then return 401 and the user logs in again.
 - **Website links** — their URLs must be `http(s)://`; pages open them with `rel="noopener"`.
-- **Project membership** — two-level auth ensures consumers can only use services they're authorized for (per-service allowed-project list).
+- **Project membership** — consumers can only use services whose allowed-project list includes one of their FABRIC service projects.
 - **Ownership checks** — edit/delete service endpoints verify `owner_id == session user_id` (or admin role).
 - **Request logging** — every auth attempt and every widget invocation is logged with IP address, timestamp, user, and parameters for audit trail.
 - **Self-signed certificate** — the public-facing HTTPS uses a self-signed cert (no domain). Browsers show a warning; this is expected for a testbed deployment.
