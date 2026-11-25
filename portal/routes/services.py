@@ -38,10 +38,10 @@ def _is_admin(user):
 
 def _owner_mailto(service, user):
     """A mailto: link that opens the user's own mail program with a request to the
-    service's owner filled in. The portal sends no mail itself. None if the owner
-    has no email address. Only given to logged-in users who cannot use the service."""
+    service's owner filled in. The portal sends no mail itself. None unless the
+    owner switched this on for the service, and has an email address. Only given to logged-in users who cannot use the service."""
     owner = service.owner
-    if not user or not owner or not owner.email:
+    if not service.allow_owner_email or not user or not owner or not owner.email:
         return None
     project = service.access_project_name or service.access_project_id or ''
     me = User.query.get(user['id'])   # the session does not hold the email address

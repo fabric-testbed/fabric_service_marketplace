@@ -399,6 +399,7 @@ function loadServiceData(data) {
     document.getElementById('svc-name').value = data.name;
     document.getElementById('svc-name').readOnly = true;
     document.getElementById('svc-desc').value = data.description;
+    document.getElementById('svc-allow-email').checked = !!data.allow_owner_email;
     document.getElementById('svc-color').value = data.icon_color;
     document.getElementById('svc-link-url').value = data.link_url || '';
 
@@ -573,6 +574,7 @@ document.getElementById('register-btn').addEventListener('click', async () => {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
                 service_name: serviceName, title, description, nodes,
+                allow_owner_email: document.getElementById('svc-allow-email').checked,
                 access_project_ids: accessProjects, icon_color: iconColor,
                 widgets: collectedWidgets, auth_mode: authMode, link_url: linkUrl
             })

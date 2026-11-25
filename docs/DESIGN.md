@@ -183,6 +183,7 @@ CREATE TABLE services (
     link_url                TEXT,           -- website links only
     access_project_id       TEXT,           -- legacy single project (first of the list)
     access_project_name     TEXT,           -- the project's name, saved when its owner registers or edits the service; shown on Request access
+    allow_owner_email       BOOLEAN NOT NULL DEFAULT 0,  -- owner's choice: show "Email the service owner" on Request access
     access_project_ids_json TEXT,           -- JSON array of allowed project UUIDs (one since the one-project rule; older rows may hold several)
     node_ipv6               TEXT,           -- legacy single node (first of the list)
     node_port               INTEGER,        -- legacy single port

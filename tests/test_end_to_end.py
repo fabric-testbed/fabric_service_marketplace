@@ -1413,13 +1413,18 @@ def test_approval_does_not_carry_over_to_an_address_changed_at_the_same_time(por
 def test_request_access_names_the_project(portal, service):
     owner = portal.test_client()
     login(owner, 'TestAuthor')
-    assert owner.post('/api/register_service', json={
+    body = {
         'service_name': 'named-project-svc', 'access_project_ids': [CONSUMER_PROJECT],
         'nodes': [{'name': 'n', 'ipv6': '::1', 'port': 8080}],
         'widgets': [{'id': 'w1', 'type': 'button', 'label': 'x', 'endpoint': '/api/x', 'method': 'GET'}],
-    }).status_code == 201
+    }
+    assert owner.post('/api/register_service', json=body).status_code == 201
     outsider = portal.test_client()
     login(outsider, 'TestOutsider')
+    # The email button is the owner's choice, and off unless they switch it on
+    assert 'mailto:' not in outsider.get('/available_services/named-project-svc').get_data(as_text=True)
+    assert owner.post('/api/update_service', json=dict(body, allow_owner_email=True)).status_code == 200
+    assert '"allow_owner_email": true' in owner.get('/edit_service/named-project-svc').get_data(as_text=True)
     page = outsider.get('/available_services/named-project-svc').get_data(as_text=True)
     assert 'Request to join Service - Echo' in page
     assert f'/projects/{CONSUMER_PROJECT}' in page

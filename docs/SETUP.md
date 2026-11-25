@@ -408,8 +408,9 @@ then `sudo bash restart.sh`.
   FABRIC portal (`FABRIC_PORTAL_URL`), where the user asks to join. After being
   added they log out and sign in again.
   "Email the service owner" opens the user's own mail program with a request
-  to the owner filled in (the portal sends no mail; the button is shown to
-  logged-in users only, and only if the owner has an email address in FABRIC).
+  to the owner filled in. The portal sends no mail. The owner switches the
+  button on or off per service on the registration form (off unless ticked,
+  since it shows their address); it is shown to logged-in users only.
   A third button, "Ask on the FABRIC forum", goes to `PORTAL_ACCESS_HELP_URL`
   (default: the FABRIC forum; empty removes the button).
 - Logging out of the portal also ends the FABRIC sign-in (clears the login

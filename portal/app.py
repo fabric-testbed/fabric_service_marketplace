@@ -20,6 +20,7 @@ def _upgrade_database():
         'link_url': 'VARCHAR',
         'title': 'VARCHAR',
         'access_project_name': 'VARCHAR',
+        'allow_owner_email': 'BOOLEAN NOT NULL DEFAULT 0',
     }
     with db.engine.begin() as conn:
         for name, ddl in new_columns.items():

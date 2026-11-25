@@ -173,6 +173,7 @@ def _apply_service_input(service, data):
 
     service.auth_mode = auth_mode
     service.title = title or None
+    service.allow_owner_email = data.get('allow_owner_email') is True
     service.description = data.get('description', '')
     service.icon_color = data.get('icon_color', '#3B82F6')
     return None
@@ -269,6 +270,7 @@ def edit_service_page(service_name):
     service_data = {
         'name': service.name,
         'title': service.display_name,
+        'allow_owner_email': bool(service.allow_owner_email),
         'description': service.description or '',
         'icon_color': service.icon_color or '#3B82F6',
         'auth_mode': service.auth_mode,
